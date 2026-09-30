@@ -1,0 +1,223 @@
+/* ══════════════════════════════════════════════════════════════════
+   rigHud.css — интерфейс модуля полёта (спидометр, джойстик, подсказки)
+
+   Тот же язык, что и styles.css: навигационный navy + латунь,
+   срезанные углы, капитель, пунктир. Раскладка не пересекается с app-ui:
+     левый верх ......... поиск (styles.css)
+     левый низ .......... джойстик (тач)
+     правый верх ........ телеметрия + сектор + ✕
+     правый низ ......... шкала скорости (центр) и «?»
+   ══════════════════════════════════════════════════════════════════ */
+
+.rig-hud {
+    --brass: #d9b364;
+    --brass-dim: rgba(217, 179, 100, .38);
+    --brass-faint: rgba(217, 179, 100, .15);
+    --ink: #e9dfc8;
+    --muted: #9a8f76;
+    --panel: rgba(7, 11, 22, .86);
+    --bevel: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+    --bevel-sm: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 900;
+    font-family: var(--mono);
+    color: var(--ink);
+    user-select: none;
+    -webkit-user-select: none;
+}
+.rig-hud * { box-sizing: border-box; }
+.rig-hud .pe { pointer-events: auto; }
+
+/* ---------- телеметрия ---------- */
+.rig-telemetry {
+    position: absolute; top: 14px; right: 14px;
+    background: var(--panel);
+    border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel);
+    padding: 9px 13px 10px;
+    font-size: 11px; line-height: 1.65;
+    min-width: 214px;
+}
+.rig-telemetry h4 {
+    margin: 0 0 7px; font-size: 9px; letter-spacing: .26em;
+    text-transform: uppercase; color: var(--brass); font-weight: 600;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    border-bottom: 3px double var(--brass-dim); padding-bottom: 6px;
+}
+.rig-telemetry h4 button {
+    pointer-events: auto; background: none; border: none; color: var(--muted);
+    cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; font-family: var(--mono);
+}
+.rig-telemetry h4 button:hover { color: var(--brass); }
+.rig-row { display: flex; justify-content: space-between; gap: 12px; white-space: nowrap; }
+.rig-row span:first-child { color: var(--muted); font-size: 10px; letter-spacing: .06em; }
+.rig-telemetry.collapsed .rig-body { display: none; }
+.rig-badge {
+    display: inline-block; padding: 1px 7px;
+    font-size: 9px; letter-spacing: .14em; margin: 4px 4px 0 0;
+    border: 1px solid var(--brass-dim); color: var(--brass);
+    clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+}
+.rig-badge.warn { border-color: rgba(255, 176, 79, .5); color: #ffb04f; }
+
+/* ---------- шкала скорости ---------- */
+.rig-speed {
+    position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel);
+    padding: 10px 16px 12px;
+    width: min(440px, calc(100vw - 28px));
+}
+.rig-speed-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 6px;
+}
+.rig-speed-val { color: var(--brass); font-size: 14px; letter-spacing: .06em; font-weight: 600; }
+.rig-speed input[type=range] {
+    pointer-events: auto; width: 100%; margin: 0; height: 22px;
+    -webkit-appearance: none; appearance: none; background: none; cursor: ew-resize;
+}
+.rig-speed input[type=range]::-webkit-slider-runnable-track {
+    height: 3px;
+    background: linear-gradient(90deg, var(--brass-faint), var(--brass-dim));
+}
+.rig-speed input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5.5px;
+    background: var(--brass); border: 1px solid #0a0e1a;
+    transform: rotate(45deg);
+    box-shadow: 0 0 10px rgba(217, 179, 100, .7);
+}
+.rig-speed input[type=range]::-moz-range-track { height: 3px; background: var(--brass-dim); }
+.rig-speed input[type=range]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 0; background: var(--brass); border: 1px solid #0a0e1a;
+}
+.rig-speed-scale {
+    display: flex; justify-content: space-between; font-size: 9px;
+    color: var(--muted); margin-top: 1px; letter-spacing: .08em;
+}
+.rig-speed-btns { display: flex; gap: 6px; margin-top: 9px; }
+.rig-btn {
+    pointer-events: auto; flex: 1; padding: 8px 4px; font-family: var(--mono);
+    font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink); background: transparent;
+    border: 1px solid var(--brass-dim); cursor: pointer;
+    clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+    transition: background .15s, color .15s; touch-action: none;
+}
+.rig-btn:active, .rig-btn.on { background: var(--brass); color: #0a0e1a; border-color: var(--brass); }
+.rig-btn.ghost { background: none; color: var(--muted); }
+.rig-btn.ghost:hover { color: var(--brass); }
+
+/* ---------- подсказка ---------- */
+.rig-help-btn {
+    position: absolute; right: 14px; bottom: 20px;
+    width: 40px; height: 40px;
+    clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+    background: var(--panel); border: 1px solid var(--brass-dim);
+    color: var(--brass); font-size: 17px; font-family: var(--mono);
+    cursor: pointer; pointer-events: auto; line-height: 1;
+}
+.rig-help-btn:hover { background: var(--brass); color: #0a0e1a; }
+.rig-help {
+    position: absolute; right: 14px; bottom: 72px; width: min(360px, calc(100vw - 28px));
+    background: var(--panel); border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel);
+    padding: 14px 17px; font-size: 11.5px; line-height: 1.55;
+    pointer-events: auto;
+    display: none; max-height: min(66vh, 540px); overflow: auto;
+}
+.rig-help.open { display: block; }
+.rig-help h5 {
+    margin: 13px 0 5px; font-size: 9px; letter-spacing: .26em; text-transform: uppercase;
+    color: var(--brass); font-weight: 600;
+    border-bottom: 1px solid var(--brass-faint); padding-bottom: 4px;
+}
+.rig-help h5:first-child { margin-top: 0; }
+.rig-help .k {
+    display: inline-block; min-width: 24px; text-align: center;
+    padding: 1px 6px; margin-right: 6px;
+    border: 1px solid var(--brass-dim);
+    color: var(--brass); font-size: 10.5px;
+    clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+}
+.rig-help p { margin: 3px 0; color: #c9bfa8; }
+.rig-help .note {
+    color: var(--muted); font-size: 10.5px; margin-top: 10px;
+    border-top: 3px double var(--brass-faint); padding-top: 9px;
+}
+
+/* ---------- закладки рига (если передали) ---------- */
+.rig-bookmarks { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.rig-bookmarks:empty { display: none; }
+.rig-bm {
+    pointer-events: auto; padding: 7px 12px; font-family: var(--mono);
+    font-size: 10px; letter-spacing: .12em; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel-sm); cursor: pointer; white-space: nowrap;
+}
+.rig-bm:hover { background: var(--brass-faint); color: var(--brass); }
+
+/* ---------- индикатор режима ---------- */
+.rig-mode {
+    position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+    font-size: 10px; letter-spacing: .26em; text-transform: uppercase;
+    color: #ffb04f; opacity: 0; transition: opacity .3s; text-align: center;
+}
+.rig-mode.on { opacity: 1; }
+
+/* ---------- виртуальные тач-контролы ---------- */
+.rig-stick {
+    position: absolute; left: 18px; bottom: 194px;
+    width: 124px; height: 124px;
+    border: 1px solid var(--brass-dim); background: rgba(7, 11, 22, .5);
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+    pointer-events: auto; touch-action: none; display: none;
+}
+.rig-stick::after {
+    content: ''; position: absolute; inset: 34%;
+    border: 1px dashed var(--brass-dim);
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.rig-knob {
+    position: absolute; left: 50%; top: 50%; width: 50px; height: 50px;
+    margin: -25px 0 0 -25px;
+    background: radial-gradient(circle at 35% 30%, #f0dfae, #8a6f35);
+    border: 1px solid rgba(233, 223, 200, .5);
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.rig-alt {
+    position: absolute; right: 18px; bottom: 194px; display: none;
+    flex-direction: column; gap: 8px; pointer-events: auto;
+}
+.rig-alt button {
+    width: 54px; height: 46px; font-family: var(--mono);
+    font-size: 16px; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--brass-dim); touch-action: none; cursor: pointer;
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.rig-alt button.on { background: var(--brass); color: #0a0e1a; }
+.rig-hud.touch .rig-stick { display: block; }
+.rig-hud.touch .rig-alt { display: flex; }
+.rig-hud.touch .rig-help-btn { bottom: 424px; }
+.rig-hud.touch .rig-help { bottom: 474px; max-height: 42vh; }
+
+/* ---------- мобильная раскладка ---------- */
+@media (max-width: 900px) {
+    .rig-telemetry { top: 64px; right: 10px; min-width: 0; font-size: 10px; padding: 7px 10px; }
+    .rig-speed { bottom: 12px; padding: 8px 12px 10px; width: calc(100vw - 20px); }
+    .rig-speed-btns { margin-top: 7px; }
+    .rig-btn { padding: 9px 4px; }
+    .rig-help-btn { right: 10px; bottom: 12px; width: 38px; height: 38px; }
+    .rig-help { right: 10px; left: 10px; width: auto; bottom: 60px; }
+    .rig-stick { left: 12px; bottom: 178px; width: 112px; height: 112px; }
+    .rig-alt { right: 12px; bottom: 178px; gap: 6px; }
+    .rig-alt button { width: 48px; height: 42px; font-size: 15px; }
+    .rig-hud.touch .rig-help-btn { bottom: 388px; }
+    .rig-hud.touch .rig-help { bottom: 436px; }
+    .rig-mode { top: 12px; font-size: 9px; letter-spacing: .16em; }
+}

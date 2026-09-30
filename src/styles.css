@@ -1,5 +1,222 @@
-*{
+/* ══════════════════════════════════════════════════════════════════
+   styles.css — база сайта-справочника по Stars Without Number
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+    --accent: #6fd3ff;
+    --accent-dim: #2b6f8f;
+    --bg: #04070d;
+    --panel: rgba(8, 14, 22, 0.78);
+    --line: rgba(111, 211, 255, 0.22);
+    --text: #cfe6f2;
+    --muted: #7d97a6;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
     margin: 0;
     padding: 0;
-    background: #2a146c;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overscroll-behavior: none;
+}
+
+body {
+    /* иначе на телефоне жесты браузера перехватывают драг и пинч */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+canvas#scene {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+}
+canvas#scene:active { cursor: grabbing; }
+
+/* ── заставка ── */
+#boot {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: radial-gradient(ellipse at 50% 45%, #0b1a2b 0%, #04070d 70%);
+    transition: opacity .7s ease, visibility .7s;
+}
+#boot.gone { opacity: 0; visibility: hidden; }
+#boot .t {
+    font-size: clamp(15px, 3.4vw, 24px);
+    letter-spacing: .38em;
+    text-transform: uppercase;
+    color: #eaf7ff;
+    text-shadow: 0 0 24px rgba(111, 211, 255, .55);
+}
+#boot .s { font-size: 11px; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; }
+#boot .bar {
+    width: min(240px, 60vw); height: 2px; background: rgba(111, 211, 255, .18); overflow: hidden; border-radius: 2px;
+}
+#boot .bar i {
+    display: block; width: 40%; height: 100%; background: var(--accent);
+    animation: bootslide 1.15s ease-in-out infinite;
+}
+@keyframes bootslide { 0% { transform: translateX(-110%) } 100% { transform: translateX(260%) } }
+
+/* ── поиск ── */
+.app-search {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 950;
+    width: min(330px, calc(100vw - 28px));
+    pointer-events: auto;
+}
+.app-search input {
+    width: 100%;
+    padding: 11px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .04em;
+    color: #eaf7ff;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    outline: none;
+    backdrop-filter: blur(9px);
+    -webkit-backdrop-filter: blur(9px);
+    -webkit-user-select: text;
+    user-select: text;
+}
+.app-search input::placeholder { color: var(--muted); }
+.app-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(111, 211, 255, .12); }
+.app-search .res {
+    display: none;
+    margin-top: 6px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    backdrop-filter: blur(9px);
+    -webkit-backdrop-filter: blur(9px);
+    max-height: 46vh;
+    overflow-y: auto;
+}
+.app-search .res.open { display: block; }
+.app-search .res button {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 9px 13px;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid rgba(111, 211, 255, .1);
+    color: var(--text);
+    font-family: var(--mono);
+    cursor: pointer;
+}
+.app-search .res button:last-child { border-bottom: none; }
+.app-search .res button:hover { background: rgba(111, 211, 255, .12); }
+.app-search .res b { font-size: 12.5px; color: #eaf7ff; font-weight: 600; }
+.app-search .res span { font-size: 10px; color: var(--muted); letter-spacing: .06em; }
+.app-search .empty { padding: 10px 13px; font-size: 11px; color: var(--muted); }
+
+/* ── закладки демо ── */
+.app-bm {
+    position: fixed;
+    top: 66px;
+    left: 14px;
+    z-index: 940;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: auto;
+}
+.app-bm .bm {
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background .15s, color .15s, transform .1s;
+}
+.app-bm .bm:hover { background: rgba(111, 211, 255, .18); color: #fff; }
+.app-bm .bm:active { transform: scale(.97); }
+.app-bm .bm.busy { background: var(--accent); color: #06121a; }
+
+/* ── индикатор сектора ── */
+.app-sector {
+    position: fixed;
+    right: 14px;
+    top: 186px;
+    z-index: 930;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 13px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 11px;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    max-width: min(360px, calc(100vw - 28px));
+}
+.app-sector .k { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.app-sector b { font-size: 14px; color: var(--accent); letter-spacing: .06em; }
+.app-sector i { font-style: normal; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* когда открыта карточка объекта — прячем то, что дублирует её содержимое */
+body.has-card .app-sector { opacity: 0; }
+body.has-card .rig-telemetry { opacity: 0; pointer-events: none; }
+
+/* ── мобильная раскладка ──
+   Свободные зоны на телефоне:
+     верх-лево   → поиск
+     верх-право  → телеметрия (top 64), под ней сектор
+     низ-лево    → джойстик (bottom 178, ~112px)
+     низ-право   → тяга/высота (bottom 178, ~190px) и «?» (bottom 388)
+     низ-центр   → шкала скорости (bottom 12, ~110px)
+   Закладки ставим в единственный свободный пояс bottom 302. */
+@media (max-width: 900px) {
+    .app-search { top: 10px; left: 10px; width: calc(100vw - 84px); }
+    .app-search input { padding: 10px 12px; font-size: 11.5px; }
+    .app-sector { top: 100px; right: 10px; max-width: 56vw; padding: 6px 10px; }
+    .app-bm {
+        top: auto;
+        bottom: 350px;
+        left: 10px;
+        right: 10px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 5px;
+    }
+    .app-bm .bm { padding: 6px 9px; font-size: 9px; letter-spacing: .05em; }
 }

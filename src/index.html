@@ -1,14 +1,26 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#04070d">
+    <meta name="description" content="Справочник по Stars Without Number: интерактивная звёздная карта сектора.">
+    <title>Stars Without Number — звёздная карта</title>
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+    <div id="boot">
+        <div class="t">Stars Without Number</div>
+        <div class="s">звёздная карта сектора</div>
+        <div class="bar"><i></i></div>
+    </div>
+
+    <!--
+      Один вход вместо двух модулей-скриптов: раньше galaxyMap.js и objectUse.js
+      грузились параллельно и оба создавали свою сцену/камеру. Теперь main.js
+      собирает всё вместе: renderer → мир → риг камеры → интерактор → HUD.
+    -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js" integrity="sha512-oJ8QbaQThQoJZ7oEv+29jfPM6CcP+zUxh3PKJs1vyOhx0UraUrE7PQgeItu3dOuCJyrzWpoYMsVjkkPEBzbUqw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="/objectUse.js" type="module"></script>
-    <script src="/galaxyMap.js" type="module"></script>
+    <script type="module" src="/map/main.js"></script>
 </body>
 </html>
