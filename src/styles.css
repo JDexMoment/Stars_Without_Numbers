@@ -1,16 +1,23 @@
 /* ══════════════════════════════════════════════════════════════════
    styles.css — база сайта-справочника по Stars Without Number
+
+   Стиль «имперской картографии»: глубокий навигационный navy,
+   латунные волоски и паспарту, срезанные углы вместо скруглений,
+   капительные заголовки с разрядкой, пунктирные выноски.
    ══════════════════════════════════════════════════════════════════ */
 
 :root {
-    --accent: #6fd3ff;
-    --accent-dim: #2b6f8f;
-    --bg: #04070d;
-    --panel: rgba(8, 14, 22, 0.78);
-    --line: rgba(111, 211, 255, 0.22);
-    --text: #cfe6f2;
-    --muted: #7d97a6;
+    --brass: #d9b364;
+    --brass-dim: rgba(217, 179, 100, .38);
+    --brass-faint: rgba(217, 179, 100, .15);
+    --ink: #e9dfc8;
+    --muted: #9a8f76;
+    --bg: #05080f;
+    --panel: rgba(7, 11, 22, .88);
+    --bevel: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+    --bevel-sm: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
     --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --serif: Georgia, "Times New Roman", serif;
 }
 
 * { box-sizing: border-box; }
@@ -22,7 +29,7 @@ html, body {
     height: 100%;
     overflow: hidden;
     background: var(--bg);
-    color: var(--text);
+    color: var(--ink);
     font-family: var(--mono);
     overscroll-behavior: none;
 }
@@ -46,7 +53,7 @@ canvas#scene {
 }
 canvas#scene:active { cursor: grabbing; }
 
-/* ── заставка ── */
+/* ── заставка: картуш с двойной рамкой ── */
 #boot {
     position: fixed;
     inset: 0;
@@ -55,24 +62,30 @@ canvas#scene:active { cursor: grabbing; }
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 14px;
-    background: radial-gradient(ellipse at 50% 45%, #0b1a2b 0%, #04070d 70%);
+    gap: 12px;
+    background:
+        radial-gradient(ellipse at 50% 42%, rgba(20, 30, 52, .9) 0%, rgba(5, 8, 15, .98) 68%),
+        var(--bg);
     transition: opacity .7s ease, visibility .7s;
 }
 #boot.gone { opacity: 0; visibility: hidden; }
 #boot .t {
-    font-size: clamp(15px, 3.4vw, 24px);
-    letter-spacing: .38em;
+    font-family: var(--serif);
+    font-size: clamp(17px, 3.6vw, 27px);
+    letter-spacing: .3em;
     text-transform: uppercase;
-    color: #eaf7ff;
-    text-shadow: 0 0 24px rgba(111, 211, 255, .55);
+    color: var(--brass);
+    padding: 14px 30px 12px;
+    border-top: 3px double var(--brass-dim);
+    border-bottom: 3px double var(--brass-dim);
 }
-#boot .s { font-size: 11px; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; }
+#boot .s { font-size: 10px; letter-spacing: .26em; color: var(--muted); text-transform: uppercase; }
 #boot .bar {
-    width: min(240px, 60vw); height: 2px; background: rgba(111, 211, 255, .18); overflow: hidden; border-radius: 2px;
+    width: min(260px, 62vw); height: 3px; margin-top: 6px;
+    background: var(--brass-faint); overflow: hidden; position: relative;
 }
 #boot .bar i {
-    display: block; width: 40%; height: 100%; background: var(--accent);
+    display: block; width: 40%; height: 100%; background: var(--brass);
     animation: bootslide 1.15s ease-in-out infinite;
 }
 @keyframes bootslide { 0% { transform: translateX(-110%) } 100% { transform: translateX(260%) } }
@@ -83,36 +96,32 @@ canvas#scene:active { cursor: grabbing; }
     top: 14px;
     left: 14px;
     z-index: 950;
-    width: min(330px, calc(100vw - 28px));
+    width: min(340px, calc(100vw - 28px));
     pointer-events: auto;
 }
 .app-search input {
     width: 100%;
     padding: 11px 14px;
     font-family: var(--mono);
-    font-size: 12px;
-    letter-spacing: .04em;
-    color: #eaf7ff;
+    font-size: 11.5px;
+    letter-spacing: .08em;
+    color: var(--ink);
     background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
+    border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel-sm);
     outline: none;
-    backdrop-filter: blur(9px);
-    -webkit-backdrop-filter: blur(9px);
     -webkit-user-select: text;
     user-select: text;
 }
-.app-search input::placeholder { color: var(--muted); }
-.app-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(111, 211, 255, .12); }
+.app-search input::placeholder { color: var(--muted); letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
+.app-search input:focus { border-color: var(--brass); background: rgba(12, 18, 34, .94); }
 .app-search .res {
     display: none;
     margin-top: 6px;
     background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
+    border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel-sm);
     overflow: hidden;
-    backdrop-filter: blur(9px);
-    -webkit-backdrop-filter: blur(9px);
     max-height: 46vh;
     overflow-y: auto;
 }
@@ -126,18 +135,19 @@ canvas#scene:active { cursor: grabbing; }
     text-align: left;
     background: none;
     border: none;
-    border-bottom: 1px solid rgba(111, 211, 255, .1);
-    color: var(--text);
+    border-bottom: 1px solid var(--brass-faint);
+    color: var(--ink);
     font-family: var(--mono);
     cursor: pointer;
 }
 .app-search .res button:last-child { border-bottom: none; }
-.app-search .res button:hover { background: rgba(111, 211, 255, .12); }
-.app-search .res b { font-size: 12.5px; color: #eaf7ff; font-weight: 600; }
+.app-search .res button:hover { background: var(--brass-faint); }
+.app-search .res button:hover b { color: var(--brass); }
+.app-search .res b { font-size: 12.5px; color: var(--ink); font-weight: 600; }
 .app-search .res span { font-size: 10px; color: var(--muted); letter-spacing: .06em; }
-.app-search .empty { padding: 10px 13px; font-size: 11px; color: var(--muted); }
+.app-search .empty { padding: 10px 13px; font-size: 11px; color: var(--muted); letter-spacing: .1em; }
 
-/* ── закладки демо ── */
+/* ── закладки: латунные ярлыки слева ── */
 .app-bm {
     position: fixed;
     top: 66px;
@@ -145,29 +155,28 @@ canvas#scene:active { cursor: grabbing; }
     z-index: 940;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
     pointer-events: auto;
 }
 .app-bm .bm {
-    padding: 7px 12px;
+    padding: 7px 14px 7px 12px;
     font-family: var(--mono);
-    font-size: 10.5px;
-    letter-spacing: .09em;
+    font-size: 10px;
+    letter-spacing: .14em;
     text-transform: uppercase;
-    color: var(--text);
+    color: var(--ink);
     background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 999px;
+    border: 1px solid var(--brass-dim);
+    border-left: 2px solid var(--brass);
+    clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
     cursor: pointer;
     text-align: left;
     white-space: nowrap;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    transition: background .15s, color .15s, transform .1s;
+    transition: background .15s, color .15s;
 }
-.app-bm .bm:hover { background: rgba(111, 211, 255, .18); color: #fff; }
-.app-bm .bm:active { transform: scale(.97); }
-.app-bm .bm.busy { background: var(--accent); color: #06121a; }
+.app-bm .bm:hover { background: var(--brass-faint); color: var(--brass); }
+.app-bm .bm:active { background: var(--brass-dim); }
+.app-bm .bm.busy { background: var(--brass); color: #0a0e1a; }
 
 /* ── индикатор сектора ── */
 .app-sector {
@@ -178,18 +187,16 @@ canvas#scene:active { cursor: grabbing; }
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 8px 13px;
+    padding: 8px 14px;
     background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
+    border: 1px solid var(--brass-dim);
+    clip-path: var(--bevel-sm);
     font-size: 11px;
     pointer-events: none;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
     max-width: min(360px, calc(100vw - 28px));
 }
-.app-sector .k { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
-.app-sector b { font-size: 14px; color: var(--accent); letter-spacing: .06em; }
+.app-sector .k { font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
+.app-sector b { font-size: 14px; color: var(--brass); letter-spacing: .1em; }
 .app-sector i { font-style: normal; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* когда открыта карточка объекта — прячем то, что дублирует её содержимое */
@@ -203,20 +210,23 @@ body.has-card .rig-telemetry { opacity: 0; pointer-events: none; }
      низ-лево    → джойстик (bottom 178, ~112px)
      низ-право   → тяга/высота (bottom 178, ~190px) и «?» (bottom 388)
      низ-центр   → шкала скорости (bottom 12, ~110px)
-   Закладки ставим в единственный свободный пояс bottom 302. */
+   Закладки ставим в единственный свободный пояс bottom 350. */
 @media (max-width: 900px) {
     .app-search { top: 10px; left: 10px; width: calc(100vw - 84px); }
-    .app-search input { padding: 10px 12px; font-size: 11.5px; }
+    .app-search input { padding: 10px 12px; font-size: 11px; }
     .app-sector { top: 100px; right: 10px; max-width: 56vw; padding: 6px 10px; }
     .app-bm {
         top: auto;
-        bottom: 350px;
+        bottom: 372px;
         left: 10px;
         right: 10px;
         flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        justify-content: flex-start;
         gap: 5px;
+        scrollbar-width: none;
     }
-    .app-bm .bm { padding: 6px 9px; font-size: 9px; letter-spacing: .05em; }
+    .app-bm::-webkit-scrollbar { display: none; }
+    .app-bm .bm { padding: 6px 10px; font-size: 9px; letter-spacing: .08em; }
 }

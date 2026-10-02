@@ -217,26 +217,14 @@ export function createObjectInteractor(scene, rig, opts = {}) {
     hint.className = 'ou-hint'
     document.body.appendChild(hint)
 
-    // переключатель «крутить объект / облетать камерой» — встроен в шапку карточки:
-    // закрылась карточка → исчез и переключатель (больше не висит поверх интерфейса)
-    const modeBtn = document.createElement('button')
-    modeBtn.className = 'ou-mode'
+    // фаза 4: кнопка-переключатель «объект/камера» УБРАНА по решению пользователя —
+    // режимы и так переключаются кнопками мыши: ЛКМ крутит объект, ПКМ облетает
+    // камерой. Подсказка-чип осталась: показывается на время операции.
     function syncMode() {
-        modeBtn.style.display = selected ? 'inline-flex' : 'none'
-        modeBtn.classList.toggle('cam', mode === 'camera')
-        modeBtn.innerHTML = mode === 'object'
-            ? '<span>⟳</span>объект'
-            : '<span>◎</span>камера'
-        modeBtn.title = mode === 'object'
+        hint.textContent = mode === 'object'
             ? 'ЛКМ/палец — крутить объект · ПКМ — облёт камерой · WASD — полёт вокруг'
             : 'ЛКМ/палец — облёт камерой · колесо/пинч — зум · WASD — полёт вокруг'
-        hint.textContent = modeBtn.title
     }
-    modeBtn.addEventListener('click', (e) => {
-        e.stopPropagation()
-        mode = mode === 'object' ? 'camera' : 'object'
-        syncMode()
-    })
 
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
@@ -268,7 +256,6 @@ export function createObjectInteractor(scene, rig, opts = {}) {
             rowEls[i].querySelector('b').textContent = r[0]
             rowEls[i].querySelector('span').textContent = r[1]
         })
-        card.querySelector('.ou-head').appendChild(modeBtn) // переносим переключатель в шапку
         card.style.display = 'block'
     }
 
@@ -329,7 +316,15 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         focusObj = focusTargetOf(obj)
         // пикер может сообщить радиус сам (у узлов карты нет геометрии для Box3)
         const r = hit.radius ?? radiusOf(focusObj)
-        const dist = clamp(r * approach.pad, rig.options.minDist, rig.options.maxDist)
+        // фаза 5: клик по системе/звезде (не по планете) — камера вписывает всю
+        // систему до внешней орбиты; span считает buildSystem в chartMap
+        const isSystem = !!(hit.entry && !hit.planet)
+        const dist = isSystem
+            ? clamp((hit.entry.span || r * 6) * 2.4, rig.options.minDist, rig.options.maxDist)
+            : clamp(r * approach.pad, rig.options.minDist, rig.options.maxDist)
+        // фаза 5: чем больше перепад масштаба, тем дольше перелёт — издалека
+        // камера едет плавно, а не «прыгает» половину пути за пол-анимации
+        const dur = Math.min(4.0, Math.max(1.2, 1.1 + Math.log10(Math.max(1, rig.dist / dist)) * 0.75))
 
         // ВАЖНО: state ставим ПОСЛЕ flyTo. flyTo внутри вызывает cancelFlight(),
         // который шлёт 'flightCancel' — обработчик не должен увидеть свежий FLYING_TO.
@@ -338,7 +333,7 @@ export function createObjectInteractor(scene, rig, opts = {}) {
             theta: approach.theta,
             phi: approach.phi,
             subject: focusObj,        // летим ЗА объектом: планета на орбите не «уедет»
-            duration: opts.flyDuration ?? 1.5,
+            duration: opts.flyDuration ?? dur,
             onComplete: () => {
                 state = 'FOLLOWING'
                 rig.followObject(focusObj)   // компенсация движения орбиты
@@ -347,6 +342,8 @@ export function createObjectInteractor(scene, rig, opts = {}) {
             },
         })
         state = 'FLYING_TO'
+        // фаза 4: объект встаёт левее центра экрана — карточка справа не перекрывает
+        rig.setFocusOffset && rig.setFocusOffset(0.3)
 
         closeBtn.style.display = 'flex'
         showCard(hit)
@@ -367,6 +364,7 @@ export function createObjectInteractor(scene, rig, opts = {}) {
     function deselect({ flyBack = true } = {}) {
         if (!selected) return
         hint.classList.remove('on')
+        rig.setFocusOffset && rig.setFocusOffset(0)   // фаза 4: возврат прицела в центр
         closeBtn.style.display = 'none'
         card.style.display = 'none'
         syncMode()
@@ -507,7 +505,7 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         const dt = performance.now() - downAt.t
         if (selected && moved < 6 && dt < 500 && downAt.button === 0 && downAt.type !== 'touch' && !isUI(e.target)) {
             const hit = opts.pick ? opts.pick(e.clientX, e.clientY) : null
-            if (!hit || hit.object !== selected) deselect()
+            if (!hit || hit.object !== selected) deselect({ flyBack: !hit })
         }
     }
 
@@ -572,7 +570,7 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         dom.removeEventListener('click', onClick, true)
         dom.removeEventListener('contextmenu', onContextMenu)
         window.removeEventListener('keydown', onKey)
-        style.remove(); closeBtn.remove(); card.remove(); hint.remove(); modeBtn.remove()
+        style.remove(); closeBtn.remove(); card.remove(); hint.remove()
     }
 
     return {

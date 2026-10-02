@@ -69,17 +69,17 @@
     background: var(--panel);
     border: 1px solid var(--brass-dim);
     clip-path: var(--bevel);
-    padding: 10px 16px 12px;
-    width: min(440px, calc(100vw - 28px));
+    padding: 7px 12px 8px;
+    width: min(330px, calc(100vw - 24px));
 }
 .rig-speed-top {
     display: flex; justify-content: space-between; align-items: baseline;
-    font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted);
-    margin-bottom: 6px;
+    font-size: 8px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 4px;
 }
-.rig-speed-val { color: var(--brass); font-size: 14px; letter-spacing: .06em; font-weight: 600; }
+.rig-speed-val { color: var(--brass); font-size: 12px; letter-spacing: .06em; font-weight: 600; }
 .rig-speed input[type=range] {
-    pointer-events: auto; width: 100%; margin: 0; height: 22px;
+    pointer-events: auto; width: 100%; margin: 0; height: 16px;
     -webkit-appearance: none; appearance: none; background: none; cursor: ew-resize;
 }
 .rig-speed input[type=range]::-webkit-slider-runnable-track {
@@ -87,23 +87,23 @@
     background: linear-gradient(90deg, var(--brass-faint), var(--brass-dim));
 }
 .rig-speed input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5.5px;
+    -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4px;
     background: var(--brass); border: 1px solid #0a0e1a;
     transform: rotate(45deg);
     box-shadow: 0 0 10px rgba(217, 179, 100, .7);
 }
 .rig-speed input[type=range]::-moz-range-track { height: 3px; background: var(--brass-dim); }
 .rig-speed input[type=range]::-moz-range-thumb {
-    width: 12px; height: 12px; border-radius: 0; background: var(--brass); border: 1px solid #0a0e1a;
+    width: 10px; height: 10px; border-radius: 0; background: var(--brass); border: 1px solid #0a0e1a;
 }
 .rig-speed-scale {
-    display: flex; justify-content: space-between; font-size: 9px;
-    color: var(--muted); margin-top: 1px; letter-spacing: .08em;
+    display: flex; justify-content: space-between; font-size: 8px;
+    color: var(--muted); margin-top: 1px; letter-spacing: .06em;
 }
-.rig-speed-btns { display: flex; gap: 6px; margin-top: 9px; }
+.rig-speed-btns { display: flex; gap: 5px; margin-top: 6px; }
 .rig-btn {
-    pointer-events: auto; flex: 1; padding: 8px 4px; font-family: var(--mono);
-    font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+    pointer-events: auto; flex: 1; padding: 5px 3px; font-family: var(--mono);
+    font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase;
     color: var(--ink); background: transparent;
     border: 1px solid var(--brass-dim); cursor: pointer;
     clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);

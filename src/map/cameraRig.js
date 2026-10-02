@@ -74,7 +74,9 @@ export const RIG_DEFAULTS = {
     zoomTouchRate: 1.15,  // чувствительность пинча
     zoomLambda: 0.14,     // сглаживание зума (0.14 мягко, 0.35 резко)
     minDist: 0.6,
-    maxDist: 3.2e5,       // предел отдаления: галактика (R=300 000) видна целиком,
+    maxDist: 3.8e5,       // фаза 4: галактика R=300 000 видна целиком сверху (300k/0.83≈362k + запас)
+    focusOffset: 0,       // фаза 4: доля полуширины экрана, на которую цель уводится ВПРАВО
+                          // (сам объект при этом виден левее центра — карточка справа не перекрывает)
                           // но улететь «в ничто» за её пределы уже нельзя
 
     /* — вращение — */
@@ -128,6 +130,9 @@ export function createCameraRig(camera, domElement, options = {}) {
     /* ═══════════ состояние ═══════════ */
     const focus = new THREE.Vector3()          // точка, вокруг которой живёт камера
     const focusTarget = new THREE.Vector3()    // цель (к ней стремимся сглаженно)
+    const _aimRight = new THREE.Vector3()      // фаза 4: экранный «вправо» для смещения цели
+    const _aim = new THREE.Vector3()
+    let offCur = 0                             // сглаженное значение o.focusOffset
     const sph = { dist: 100, theta: 0, phi: Math.PI / 2.4 }
     const sphTarget = { dist: 100, theta: 0, phi: Math.PI / 2.4 }
     const home = { focus: new THREE.Vector3(), dist: 100, theta: 0, phi: Math.PI / 2.4 }
@@ -328,7 +333,7 @@ export function createCameraRig(camera, domElement, options = {}) {
             ? position.clone()
             : (subject ? subject.getWorldPosition(new THREE.Vector3()) : focusTarget.clone())
 
-        flightFrom = { focus: focusTarget.clone(), dist: sphTarget.dist, theta: sphTarget.theta, phi: sphTarget.phi }
+        flightFrom = { focus: focus.clone(), dist: sph.dist, theta: sph.theta, phi: sph.phi }
         focusTarget.copy(dest)
         const from = flightFrom
 
@@ -583,8 +588,31 @@ export function createCameraRig(camera, domElement, options = {}) {
         _sph.set(sph.dist, sph.phi, sph.theta)
         _off.setFromSpherical(_sph)
         camera.position.copy(focus).add(_off)
+        // фаза 5: камера тоже не выходит за границу секторов (баг: облёт ПКМ
+        // уносил её за кольцо, и WASD упирался в кламп фокуса — «нельзя двигаться»)
+        if (o.bounds) {
+            const ux = camera.position.x + originShift.x
+            const uz = camera.position.z + originShift.z
+            const rr = Math.hypot(ux, uz)
+            if (rr > o.bounds.radius) {
+                const k = o.bounds.radius / rr
+                camera.position.x = ux * k - originShift.x
+                camera.position.z = uz * k - originShift.z
+            }
+        }
         camera.up.set(0, 1, 0)
-        camera.lookAt(focus)
+        // фаза 4: плавное смещение точки прицела вправо по экрану — выбранный
+        // объект виден левее центра и не прячется под карточкой информации
+        offCur += (o.focusOffset - offCur) * Math.min(1, dt * 5)
+        if (offCur > 1e-4) {
+            const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * camera.aspect
+            _aimRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
+            // quaternion ещё от прошлого кадра — для смещения в пару % этого достаточно
+            _aim.copy(focus).addScaledVector(_aimRight, offCur * tanH * sph.dist)
+            camera.lookAt(_aim)
+        } else {
+            camera.lookAt(focus)
+        }
 
         // динамические near/far
         const d = Math.max(sph.dist, o.minDist)
@@ -710,6 +738,7 @@ export function createCameraRig(camera, domElement, options = {}) {
         update, attach, dispose, setState,
         flyTo, cancelFlight, frameObject, followObject, releaseSubject,
         flyHome, setHome, orbitBy, setSkybox, setBounds,
+        setFocusOffset: (v) => { o.focusOffset = +v || 0 },
         setLocked, setPaused, suppressPointer, isDragging, lastGestureWasDrag,
         setSpeedMultiplier, setSpeedStep, stepSpeed,
         originShift, camUniverse, focusUniverse, toRender, toUniverse,

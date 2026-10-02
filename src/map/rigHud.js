@@ -27,7 +27,7 @@ export function createRigHud(rig, opts = {}) {
             pos: 'Фокус',
             boost: 'Ускоритель',
             fine: 'Точно',
-            home: 'Домой',
+            home: 'Галактика',
             help: 'Управление',
         },
     } = opts
@@ -141,7 +141,7 @@ export function createRigHud(rig, opts = {}) {
             telem.classList.toggle('collapsed')
             btn.textContent = telem.classList.contains('collapsed') ? '+' : '–'
         }
-        if (act === 'home') rig.flyHome()
+        if (act === 'home') { opts.onHome && opts.onHome(); rig.flyHome() }
     })
     // удерживаемые кнопки (мышь и палец)
     const hold = (el, on, off) => {

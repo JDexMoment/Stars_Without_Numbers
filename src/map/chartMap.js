@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+// «жирные» линии (linewidth в пикселях): обычные THREE.Line всегда в 1 px
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { mulberry32, hashString } from './rng.js'
 import { makeGlowTexture, makeStarTexture, makeNodeTexture, makeLabelTexture } from './uiTextures.js'
 import { SYSTEMS, CAMPAIGN } from './systems.data.js'
@@ -28,8 +32,8 @@ const WORLD_R = 300000                // радиус звёздного обл�
                                       // Облако НАМНОГО больше паутины узлов: паутина —
                                       // это освоенный сектор ВНУТРИ галактики, а не вся она
 const CHART_SPAN = 114000             // диаметр карты-«паутины» (nebula_mapa)
-const SECTOR = 12000                  // шаг сетки секторов
-const BOUNDS = { radius: 60000, height: 22000 }  // цилиндр границы полёта камеры
+const SECTOR = 60000                  // шаг сетки секторов (фаза 4: сетка на всю галактику)
+const BOUNDS = { radius: 200000, height: 22000 }  // фаза 5: граница секторов и полёта 200 000
 const ORBIT_SLOW = 0.3                // общий замедлитель орбит планет вокруг звёзд
 
 const PALETTE = {
@@ -57,12 +61,13 @@ void main() {
 `
 const CLOUD_FRAG = /* glsl */`
 varying vec3 vColor;
+uniform float uDim;      // фаза 5: приглушение галактики на большом отдалении
 void main() {
     vec2 uv = gl_PointCoord - 0.5;
     float d = length(uv);
     float a = smoothstep(0.5, 0.06, d);
     if (a < 0.02) discard;
-    gl_FragColor = vec4(vColor, a);
+    gl_FragColor = vec4(vColor, a * uDim);
 }
 `
 
@@ -129,6 +134,64 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
     let cloudMat = null
     let linkMat = null
     let unexpMat = null
+    let routesObj = null               // фаза 4: золотая сеть маршрутов (LineSegments2)
+    let routesN = 0
+
+    // фаза 4: прокси остались только у ИМЕНОВАННЫХ узлов — за них камера
+    // «берётся» при клике (полёт-фокус); необследованные точки убраны
+    const ensureNodeProxy = (nd) => {
+        if (!nd || nd.proxy) return nd && nd.proxy
+        const proxy = new THREE.Object3D()
+        proxy.position.copy(nd.pos)
+        proxy.userData.radius = 700
+        proxy.name = 'node-' + nd.index
+        if (chartGroup) chartGroup.add(proxy)
+        nd.proxy = proxy
+        return proxy
+    }
+
+    // фаза 4: вместо паутины — редкая «сеть маршрутов»: каждая система
+    // соединена жирной золотой линией со своими 3 ближайшими соседями
+    function buildRoutes() {
+        if (routesObj) {
+            chartGroup.remove(routesObj)
+            routesObj.geometry.dispose()
+            routesObj.material.dispose()
+            routesObj = null
+            routesN = 0
+        }
+        const named = systems.filter((s) => s.pos)
+        if (named.length < 2) return
+        const seen = new Set()
+        const pos = []
+        for (let i = 0; i < named.length; i++) {
+            const a = named[i]
+            const order = named
+                .map((b, j) => ({ j, d: b.pos.distanceToSquared(a.pos) }))
+                .filter((o) => o.j !== i)
+                .sort((x, y) => x.d - y.d)
+                .slice(0, 3)
+            for (const { j } of order) {
+                const key = Math.min(i, j) + '-' + Math.max(i, j)
+                if (seen.has(key)) continue
+                seen.add(key)
+                const b = named[j]
+                pos.push(a.pos.x, a.pos.y, a.pos.z, b.pos.x, b.pos.y, b.pos.z)
+            }
+        }
+        routesN = pos.length / 6
+        const geo = new LineSegmentsGeometry()
+        geo.setPositions(pos)
+        const mat = new LineMaterial({
+            color: 0xf0c463, linewidth: 3.4, transparent: true, opacity: 0.92,
+            depthWrite: false, worldUnits: false,
+        })
+        mat.resolution.set(window.innerWidth, window.innerHeight)
+        routesObj = new LineSegments2(geo, mat)
+        routesObj.name = 'routes'
+        routesObj.frustumCulled = false
+        chartGroup.add(routesObj)
+    }
     let sectorGrid = null
     let ready = false
 
@@ -176,15 +239,17 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
 
         // звёздные классы (теплее и пестрее прежнего белого)
         const classes = [
-            [0.44, 0.70, 0.82, 0.92],   // бело-голубые
-            [0.24, 0.94, 0.96, 1.00],   // белые
-            [0.17, 1.00, 0.94, 0.78],   // жёлтые
-            [0.10, 1.00, 0.76, 0.48],   // оранжевые
+            [0.34, 0.70, 0.82, 0.92],   // бело-голубые
+            [0.20, 0.94, 0.96, 1.00],   // белые
+            [0.07, 1.00, 0.94, 0.78],   // жёлтые (фаза 5: вдвое меньше)
+            [0.06, 1.00, 0.76, 0.48],   // оранжевые
             [0.05, 0.95, 0.52, 0.40],   // красные карлики
+            [0.17, 0.55, 0.62, 1.00],   // синие (фаза 5)
+            [0.11, 0.72, 0.52, 0.98],   // фиолетовые (фаза 5)
         ]
-        const warm = new THREE.Color(0xffca7a)
+        const warm = new THREE.Color(0xb9c4ff)   // фаза 5: ядро холодное, не жёлтое пятно
         const cold = new THREE.Color(0x8ab4ff)
-        const nebA = new THREE.Color(0xd8745f)
+        const nebA = new THREE.Color(0x8f6cff)   // фаза 5: фиолетовые туманности вместо лососевых
         const nebB = new THREE.Color(0x56d0c0)
         const tmp = new THREE.Color()
 
@@ -240,6 +305,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             uniforms: {
                 uBasePx: { value: 2.0 },
                 uPixRatio: { value: renderer.getPixelRatio() },
+                uDim: { value: 1.0 },
             },
             transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
         })
@@ -263,29 +329,10 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         chartGroup.name = 'mapa'
         group.add(chartGroup)
 
-        // связи: золотистые «волоски» вместо голубого.
-        // Геометрия связей тоже в локальных координатах своего узла —
-        // переносим в мировые и приводим к масштабу карты (иначе линии
-        // разъезжаются с узлами, которые мы берём через getWorldPosition).
-        scene.traverse((m) => {
-            if (!m.isMesh) return
-            const verts = m.geometry.getAttribute('position')?.count || 0
-            if (verts > 1000) {
-                const geo = m.geometry.clone()
-                geo.applyMatrix4(m.matrixWorld)
-                geo.translate(-c.x, -c.y, -c.z)
-                geo.scale(s, s, s)
-                linkMat = new THREE.MeshBasicMaterial({
-                    color: 0xd9b364, transparent: true, opacity: 0.9,
-                    blending: THREE.AdditiveBlending, depthWrite: false,
-                })
-                const links = new THREE.Mesh(geo, linkMat)
-                links.name = 'links'
-                links.frustumCulled = false
-                chartGroup.add(links)
-            }
-        })
-        // позиции маркеров — из мировых матриц (в самих узлах GLB трансформаций нет)
+        // Фаза 4: паутина связей и точки необследованных узлов УБРАНЫ по решению
+        // пользователя — вместо них редкая золотая сеть маршрутов (buildRoutes).
+        // От nebula_mapa оставляем только позиции узлов: на них ставят системы
+        // (node: N в systems.data.js / addSystem).
         const wp = new THREE.Vector3()
         const MARKER_VERTS = 60 // икосфера detail 0: 20 граней × 3 вершины
         scene.traverse((m) => {
@@ -300,38 +347,6 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
                 })
             }
         })
-
-        // точки-узлы: один Points на все необследованные (экранный размер)
-        const pos = new Float32Array(nodes.length * 3)
-        nodes.forEach((nd, i) => { pos[i * 3] = nd.pos.x; pos[i * 3 + 1] = nd.pos.y; pos[i * 3 + 2] = nd.pos.z })
-        const ptsGeo = new THREE.BufferGeometry()
-        ptsGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-        unexpMat = new THREE.ShaderMaterial({
-            vertexShader: UNEXP_VERT, fragmentShader: UNEXP_FRAG,
-            uniforms: {
-                uSizePx: { value: 4.5 },
-                uPixRatio: { value: renderer.getPixelRatio() },
-                uNear: { value: 2500 }, uFar: { value: 9000 },
-                uTex: { value: nodeTex },
-                uColor: { value: new THREE.Color(0x9a8452) },
-                uOpacity: { value: 0.55 },
-            },
-            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-        })
-        const pts = new THREE.Points(ptsGeo, unexpMat)
-        pts.name = 'unexplored-nodes'
-        pts.frustumCulled = false
-        chartGroup.add(pts)
-
-        // невидимые прокси для полёта камеры к необследованным узлам
-        for (const nd of nodes) {
-            const proxy = new THREE.Object3D()
-            proxy.position.copy(nd.pos)
-            proxy.userData.radius = 700
-            proxy.name = 'node-' + nd.index
-            chartGroup.add(proxy)
-            nd.proxy = proxy
-        }
 
         buildNamedSystems()
         buildSectorGrid()
@@ -442,10 +457,11 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             const seed = hashString(entry.name || ('system' + gi))
             const sys = buildSystem(entry, at, mulberry32(seed))
             sys.nodeIndex = nd ? nd.index : -1
-            if (nd) nd.system = sys.entry
+            if (nd) { nd.system = sys.entry; ensureNodeProxy(nd) }
             systems.push(sys)
             gi++
         }
+        buildRoutes()
     }
 
     function buildSystem(entry, at, rand) {
@@ -480,7 +496,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
                 const model = gltf.scene
                 fitModel(model, starRadius)
                 g.add(model)
-                model.traverse((m) => { if (m.isMesh) { m.userData.radius = starRadius; m.userData.planetName = starName; systemMeshes.push(m) } })
+                model.traverse((m) => { if (m.isMesh) { m.userData.radius = starRadius; m.userData.planetName = starName; m.userData.sysEntry = entry; systemMeshes.push(m) } })
             }, undefined, (e) => console.error('модель звезды', entry.star.model, e))
         } else {
             const m = new THREE.Mesh(
@@ -489,6 +505,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             )
             m.userData.radius = starRadius
             m.userData.planetName = starName
+            m.userData.sysEntry = entry      // фаза 5: клик по звезде = клик по системе
             g.add(m)
             systemMeshes.push(m)
         }
@@ -589,9 +606,18 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         g.add(sprite)
         labels.push(sprite)
 
+        // фаза 5: «размер» системы = внешняя орбита (+ запас): по нему камера
+        // вписывает всю систему в кадр при клике, а не только звезду
+        let span = starRadius * 6
+        for (const p of (entry.planets || [])) {
+            const orad = p.orbit ?? 0
+            if (orad > 0) span = Math.max(span, orad * 1.25)
+        }
+        entry.span = span
+
         return {
             entry, group: g, halo, nodeSprite, orbiters,
-            pos: at.clone(), rand,
+            pos: at.clone(), rand, span,
         }
     }
 
@@ -686,21 +712,27 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             s.nodeSprite.visible = d > 12000
         }
 
-        // связи-трубки у самой камеры превращаются в толстые лучи — гасим
-        // скелет, когда камера «внутри» паутины (рядом с узлом)
-        if (linkMat) {
-            let dNear = Infinity
-            for (let i = 0; i < nodes.length; i += 2) {
-                const dd = nodes[i].pos.distanceToSquared(camUniverse)
-                if (dd < dNear) dNear = dd
-            }
-            dNear = Math.sqrt(dNear)
-            // Паутина = фон на подлёте (1200→7000 растёт до чётких 0.96),
-            // но ВНУТРИ системы (<1200) трубки у камеры стали бы лентами —
-            // гасим их в ноль, как просила фаза 2, не теряя «фон на подлёте»
-            linkMat.opacity = 0.96 * THREE.MathUtils.clamp((dNear - 1200) / 5800, 0, 1)
-            linkMat.visible = linkMat.opacity > 0.02
+        // фаза 5: на большом отдалении галактика тусклее — не «светлое пятно»,
+        // а россыпь звёзд: аддитивное ядро приглушаем по дистанции камеры
+        if (cloudMat) {
+            const f = THREE.MathUtils.smoothstep(camUniverse.length(), 60000, 260000)
+            cloudMat.uniforms.uDim.value = 1 - 0.68 * f
         }
+
+        // фаза 5: золотые маршруты гаснут вблизи системы и плавно возвращаются
+        // при отдалении (у самой камеры линии резали бы кадр)
+        if (routesObj) {
+            let dS = Infinity
+            for (const s of systems) {
+                const dd = s.pos.distanceTo(camUniverse)
+                if (dd < dS) dS = dd
+            }
+            const op = 0.92 * THREE.MathUtils.clamp((dS - 1200) / 6000, 0, 1)
+            routesObj.material.opacity = op
+            routesObj.visible = op > 0.02
+        }
+
+        // Фаза 4: скелет-паутина убран вместе с linkMat — гасить больше нечего
 
         // подписи: экранный размер + LOD
         for (const l of labels) {
@@ -757,8 +789,9 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         const shift = rigRef ? rigRef.originShift : _zero
         const camDist = camUniverse.length()
         let best = null, bestD = Infinity
-        const grab = Math.max(26, 60 * Math.min(1, camDist / WORLD_R)) // пикселей
+        const grab = 18   // фаза 5: переход к системе ТОЛЬКО по прямому клику (18 px)
         for (const nd of nodes) {
+            if (!nd.system) continue   // фаза 4: необследованные узлы не кликаются
             proj.copy(nd.pos).sub(shift).project(camera)
             if (proj.z > 1 || proj.z < -1) continue
             const sx = (proj.x * 0.5 + 0.5) * window.innerWidth
@@ -877,7 +910,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         attachRig(r) { rigRef = r },
         setPixelRatio(r) {
             if (cloudMat) cloudMat.uniforms.uPixRatio.value = r
-            if (unexpMat) unexpMat.uniforms.uPixRatio.value = r
+            if (routesObj) routesObj.material.resolution.set(window.innerWidth, window.innerHeight)
         },
         get nodes() { return nodes },
         get systems() { return systems },
@@ -922,9 +955,12 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             const seed = hashString(entry.name || ('system' + systems.length))
             const sys = buildSystem(entry, at, mulberry32(seed))
             sys.nodeIndex = nd ? nd.index : -1
-            if (nd) nd.system = sys.entry
+            if (nd) { nd.system = sys.entry; ensureNodeProxy(nd) }
             systems.push(sys)
+            buildRoutes()              // сеть маршрутов перестраиваем под новый узел
             return sys.entry
         },
+        /** фаза 4: сколько рёбер у золотой сети маршрутов (для тестов/отладки) */
+        routeCount() { return routesN },
     }
 }

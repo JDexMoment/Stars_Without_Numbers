@@ -56,7 +56,7 @@ camera.position.set(0, 90000, 150000)
 
 // общий свет: ночная сторона планет читается (рельеф, будущие огни городов),
 // но остаётся заметно темнее дневной — объём планет не теряется
-worldRoot.add(new THREE.AmbientLight(0x46587a, 0.6))
+worldRoot.add(new THREE.AmbientLight(0x46587a, 1.15))   // фаза 5: ещё ярче по просьбе пользователя
 
 /* ══════════════════ индикатор загрузки ══════════════════ */
 const boot = document.getElementById('boot')
@@ -82,7 +82,7 @@ const rig = createCameraRig(camera, renderer.domElement, {
     rebaseThreshold: 3e5,
     fov: 75,
     minDist: 0.8,
-    maxDist: 3.2e5,               // меньше предел отдаления: галактика целиком, но не «бесконечность»
+    maxDist: 3.8e5,               // фаза 4: галактика R=300 000 целиком сверху (300k/0.83 + запас)
     baseSpeed: 1.9,
     speedPower: 1.0,
     zoomLambda: 0.16,
@@ -100,6 +100,8 @@ rig.setHome()
 // nebula_mapa и звёздное облако (см. updateSkyFade).
 let skyMats = []
 let skyObj = null
+let starMats = []          // фаза 5: купол 2k_stars.jpg для максимального отдаления
+let starDome = null
 async function loadSkybox() {
     try {
         const gltf = await loader.loadAsync('/nebulae/models/billions_stars_skybox_hdri_panorama.glb')
@@ -127,22 +129,47 @@ async function loadSkybox() {
         })
         worldRoot.add(sky)
         skyObj = sky
+
+        // фаза 5: на максимальном отдалении фоном служит чистое звёздное небо
+        // 2k_stars.jpg (панорама там мешает читать галактику), а вблизи систем —
+        // панорама GLB: космос никогда не бывает абсолютно чёрным
+        const box = new THREE.Box3().setFromObject(sky)
+        const R = box.getBoundingSphere(new THREE.Sphere()).radius || 1000
+        const tex = new THREE.TextureLoader().load('/nebulae/textures/2k_stars.jpg')
+        tex.colorSpace = THREE.SRGBColorSpace
+        starDome = new THREE.Mesh(
+            new THREE.SphereGeometry(R * 0.985, 48, 32),
+            new THREE.MeshBasicMaterial({
+                map: tex, side: THREE.BackSide, transparent: true, opacity: 0,
+                depthWrite: false, depthTest: false, toneMapped: false,
+            })
+        )
+        starDome.name = 'stardome'
+        starDome.frustumCulled = false
+        starDome.renderOrder = -2       // рисуется ПОД панорамой
+        starDome.visible = false
+        starMats = [starDome.material]
+        sky.add(starDome)               // живёт внутри скайбокса: риг масштабирует оба
+
         rig.setSkybox(sky)          // риг держит её у камеры и масштабирует под far
     } catch (e) {
         console.warn('скайбокс не загрузился:', e?.message || e)
     }
 }
 
-/** Прозрачность панорамы от «высоты» камеры: вблизи систем фон — паутина карты. */
+/** Фаза 5: фон = панорама GLB от максимального приближения до средних дистанций;
+    на максимальном отдалении её замещает купол 2k_stars.jpg. Кросс-фейд 120k→300k. */
 function updateSkyFade() {
     if (!skyMats.length) return
     const d = rig.sph.dist
-    const t = THREE.MathUtils.clamp((d - 1500) / 5500, 0, 1)  // 0 у планеты → 1 с высоты ~7000
-    const op = t * t * (3 - 2 * t)                            // smoothstep
+    const x = THREE.MathUtils.clamp((d - 120000) / 180000, 0, 1)
+    const t = x * x * (3 - 2 * x)                 // smoothstep: 0 вблизи/средне → 1 далеко
+    const op = 0.9 * (1 - t)                      // панорама: видна вплоть до средних
     for (const mm of skyMats) mm.opacity = op
-    // полностью прозрачную панораму не рисуем вообще: минус полноэкранный
-    // проход прозрачного слоя вблизи систем (заметно на слабых машинах)
+    for (const mm of starMats) mm.opacity = t
+    // полностью прозрачные слои не рисуем: минус полноэкранные проходы
     if (skyObj) skyObj.visible = op > 0.01
+    if (starDome) starDome.visible = t > 0.01
 }
 
 /* ══════════════════ интерактор объектов ══════════════════ */
@@ -159,7 +186,11 @@ rig.onRebase(({ shift }) => {
 })
 
 /* ══════════════════ HUD ══════════════════ */
-const hud = createRigHud(rig, { touch: isTouchDevice() })
+const hud = createRigHud(rig, {
+    touch: isTouchDevice(),
+    // фаза 4: «Галактика» снизу сбрасывает и выделение, чтобы карточка не висела
+    onHome: () => interactor.deselect({ flyBack: false }),
+})
 
 /* ══════════════════ поиск по карте ══════════════════ */
 const _proj = new THREE.Vector3()
@@ -216,65 +247,8 @@ function buildSearch() {
     return box
 }
 
-/* ══════════════════ закладки ══════════════════ */
-function buildBookmarks() {
-    const bar = document.createElement('div')
-    bar.className = 'app-bm app-ui'
-    const items = [
-        {
-            label: 'Галактика',
-            run: () => rig.flyTo({ position: rig.toRender(new THREE.Vector3(0, 0, 0)), dist: 1.1e5, phi: 0.95, theta: 0.5, duration: 2.4 }),
-        },
-        {
-            label: 'Домашняя система',
-            run: () => {
-                const home = map.named()[0]
-                if (home) {
-                    rig.flyTo({ position: rig.toRender(home.pos), dist: 160, duration: 2.4 })
-                    setTimeout(() => interactor.selectAt(...projectToScreen(home.pos)), 2500)
-                }
-            },
-        },
-        {
-            label: 'Случайный узел',
-            hint: 'необследованная система из nebula_mapa.glb',
-            run: () => {
-                const nd = map.randomUnexplored()
-                if (nd) rig.flyTo({ position: rig.toRender(nd.pos), dist: 2600, duration: 2.4 })
-            },
-        },
-        {
-            label: 'Ближайшая система',
-            run: () => {
-                const s = map.nearestNamed(rig.focusUniverse)
-                if (s) rig.flyTo({ position: rig.toRender(s.pos), dist: 900, duration: 1.8 })
-            },
-        },
-        {
-            label: 'Край галактики',
-            hint: 'проверка границы мира и перебазировки',
-            run: () => rig.flyTo({
-                position: rig.toRender(new THREE.Vector3(map.bounds.radius * 0.96, 4000, 0)),
-                dist: 4e4, duration: 3.0,
-            }),
-        },
-    ]
-    items.forEach((it) => {
-        const b = document.createElement('button')
-        b.className = 'bm'
-        b.textContent = it.label
-        if (it.hint) b.title = it.hint
-        b.addEventListener('click', async () => {
-            interactor.deselect({ flyBack: false })
-            b.classList.add('busy')
-            try { await it.run() } finally { setTimeout(() => b.classList.remove('busy'), 900) }
-        })
-        bar.appendChild(b)
-    })
-    document.body.appendChild(bar)
-    return bar
-}
-
+/* Фаза 4: панель закладок (Галактика / Домашняя / Случайный узел / …) убрана
+   по решению пользователя — остались поиск сверху и кнопка «Галактика» снизу. */
 /* ══════════════════ индикатор сектора ══════════════════ */
 function buildSectorBadge() {
     const el = document.createElement('div')
@@ -300,22 +274,28 @@ function buildSectorBadge() {
 async function boot0() {
     document.body.classList.add(isTouchDevice() ? 'is-touch' : 'is-desktop')
     progress(0.02, 'загрузка карты…')
+    // страховка: если за 30 секунд не загрузились — подсказка вместо тишины
+    setTimeout(() => {
+        const b = document.getElementById('boot')
+        if (b && !b.classList.contains('gone')) {
+            progress(0.97, 'задержка… откройте консоль (F12) и обновите страницу (Ctrl+R)')
+        }
+    }, 30000)
 
     // скайбокс и карта грузятся параллельно
     await Promise.all([loadSkybox(), map.load(progress)])
 
-    // стартовая точка: общий вид галактики сверху-сбоку
-    const home = map.named()[0]
+    // фаза 4: старт = «вся галактика сверху» — это же положение возвращает
+    // кнопка «Галактика» снизу (rig.setHome / flyHome)
     rig.setState({
-        dist: 1.1e5,
+        dist: 3.8e5,
         theta: 0.5,
-        phi: 0.95,
-        lookAt: home ? home.pos.clone() : new THREE.Vector3(0, 0, 0),
+        phi: 0.18,
+        lookAt: new THREE.Vector3(0, 0, 0),
     })
     rig.setHome()
 
     buildSearch()
-    buildBookmarks()
     buildSectorBadge()
 
     progress(1, 'готово')
@@ -336,7 +316,12 @@ function animate() {
     renderer.render(scene, camera)
 }
 animate()
-boot0()
+boot0().catch((e) => {
+    // фаза 5+: ошибка загрузки не должна выглядеть как «бесконечная загрузка»:
+    // показываем текст ошибки прямо в оверлее и дублируем в консоль
+    console.error('boot failed:', e)
+    progress(1, 'ошибка загрузки: ' + (e?.message || String(e)))
+})
 
 /* ══════════════════ resize ══════════════════ */
 window.addEventListener('resize', () => {
