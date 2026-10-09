@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
-// objectUse.js и cameraRig.js исторически берут gsap из window. ВАЖНО: именованный
-// импорт — `import * as gsap` дал бы namespace без gsap.to.
-window.gsap = window.gsap || gsap
+// gsap НЕ импортируем из npm (просьба пользователя): он подключён CDN-тегом в
+// index.html и живёт в window.gsap; cameraRig/objectUse берут его оттуда сами.
+// Без gsap карта тоже работает (мгновенные перелёты) — ничего не падает.
 // отключаем lagSmoothing: иначе на слабом железе/software-GL перелёты камеры
 // растягиваются на секунды (gsap «догоняет» пропущенное время).
-if (gsap.ticker) gsap.ticker.lagSmoothing(0)
+if (window.gsap && window.gsap.ticker) window.gsap.ticker.lagSmoothing(0)
 
 import { createCameraRig } from './cameraRig.js'
 import { createRigHud, isTouchDevice } from './rigHud.js'
@@ -40,7 +40,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 0.95
+renderer.toneMappingExposure = 1.0
 renderer.domElement.id = 'scene'
 document.body.appendChild(renderer.domElement)
 
@@ -56,7 +56,7 @@ camera.position.set(0, 90000, 150000)
 
 // общий свет: ночная сторона планет читается (рельеф, будущие огни городов),
 // но остаётся заметно темнее дневной — объём планет не теряется
-worldRoot.add(new THREE.AmbientLight(0x46587a, 1.15))   // фаза 5: ещё ярче по просьбе пользователя
+worldRoot.add(new THREE.AmbientLight(0x5a6c8c, 0.9))    // фаза 6: ambient 0.9 (тусклость лечится depthTest неба, неambient)
 
 /* ══════════════════ индикатор загрузки ══════════════════ */
 const boot = document.getElementById('boot')
@@ -82,7 +82,7 @@ const rig = createCameraRig(camera, renderer.domElement, {
     rebaseThreshold: 3e5,
     fov: 75,
     minDist: 0.8,
-    maxDist: 3.8e5,               // фаза 4: галактика R=300 000 целиком сверху (300k/0.83 + запас)
+    maxDist: 1.7e5,               // фаза 10: отдаление чуть больше прежнего
     baseSpeed: 1.9,
     speedPower: 1.0,
     zoomLambda: 0.16,
@@ -117,15 +117,16 @@ async function loadSkybox() {
             for (const mm of mats) {
                 mm.side = THREE.BackSide
                 mm.depthWrite = false
-                mm.depthTest = false
+                mm.depthTest = true      // фаза 6: небо СТРОГО фон, не поверх объектов
                 mm.toneMapped = false
                 mm.transparent = true
+                // фаза 7: панорама рисуется ПОД куполом звёзд
                 // главный фон — яркий, но чуть холодный, чтобы золотая
                 // паутина карты читалась поверх него
                 mm.color = new THREE.Color(0.82, 0.82, 0.88)
                 skyMats.push(mm)
             }
-            m.renderOrder = -1
+            m.renderOrder = -2
         })
         worldRoot.add(sky)
         skyObj = sky
@@ -141,12 +142,14 @@ async function loadSkybox() {
             new THREE.SphereGeometry(R * 0.985, 48, 32),
             new THREE.MeshBasicMaterial({
                 map: tex, side: THREE.BackSide, transparent: true, opacity: 0,
-                depthWrite: false, depthTest: false, toneMapped: false,
+                depthWrite: false, depthTest: true, toneMapped: false,
+                // аддитивно: звёзды читаются ПОВЕРХ панорамы на любом зуме
+                blending: THREE.AdditiveBlending,
             })
         )
         starDome.name = 'stardome'
         starDome.frustumCulled = false
-        starDome.renderOrder = -2       // рисуется ПОД панорамой
+        starDome.renderOrder = -1       // рисуется ПОВЕРХ панорамы (аддитивно)
         starDome.visible = false
         starMats = [starDome.material]
         sky.add(starDome)               // живёт внутри скайбокса: риг масштабирует оба
@@ -157,19 +160,33 @@ async function loadSkybox() {
     }
 }
 
-/** Фаза 5: фон = панорама GLB от максимального приближения до средних дистанций;
-    на максимальном отдалении её замещает купол 2k_stars.jpg. Кросс-фейд 120k→300k. */
+/** Фаза 6: звёздное небо (2k_stars) — фон ВСЕГДА, от максимального отдаления
+    до момента, когда солнечная система становится видна как система (~15k).
+    Только ниже панорама GLB начинает примешиваться, а на максимальном
+    приближении остаётся малая часть звёзд (не гасим купол в ноль). */
 function updateSkyFade() {
     if (!skyMats.length) return
+    // фаза 10: в 2D-плане неба нет — плоский тёмный фон чертежа
+    if (rig.mode2d) {
+        if (skyObj) skyObj.visible = false
+        if (starDome) starDome.visible = false
+        return
+    }
     const d = rig.sph.dist
-    const x = THREE.MathUtils.clamp((d - 120000) / 180000, 0, 1)
-    const t = x * x * (3 - 2 * x)                 // smoothstep: 0 вблизи/средне → 1 далеко
-    const op = 0.9 * (1 - t)                      // панорама: видна вплоть до средних
+    // 1 = далеко (система ещё точка) → 0 вблизи (система видна)
+    const far = THREE.MathUtils.clamp((d - 1500) / 13500, 0, 1)
+    const t = far * far * (3 - 2 * far)              // smoothstep
+    // фаза 8: у самого объекта панорама слегка притушает, чтобы точки звёзд
+    // читались поверх неё; вдали — как прежде
+    const near = THREE.MathUtils.clamp((d - 15) / 105, 0, 1)
+    const nT = near * near * (3 - 2 * near)
+    const op = 0.9 * (1 - t) * (0.55 + 0.45 * nT)
     for (const mm of skyMats) mm.opacity = op
-    for (const mm of starMats) mm.opacity = t
-    // полностью прозрачные слои не рисуем: минус полноэкранные проходы
-    if (skyObj) skyObj.visible = op > 0.01
-    if (starDome) starDome.visible = t > 0.01
+    // фаза 10: купол звёзд всегда виден, но чуть притушен, не спорит с картой
+    for (const mm of starMats) mm.opacity = 0.78
+    // родитель НЕ скрывать: внутри живёт купол звёзд (иначе фон чернеет)
+    if (skyObj) skyObj.visible = true
+    if (starDome) starDome.visible = true
 }
 
 /* ══════════════════ интерактор объектов ══════════════════ */
@@ -177,6 +194,10 @@ const interactor = createObjectInteractor(scene, rig, {
     domElement: renderer.domElement,
     pick: (x, y) => map.pick(x, y),
     describe: (hit) => map.describe(hit),
+    // фаза 7: карточке нужен построенный sys-объект (orbiters) по записи системы
+    getSystem: (e) => map.systems.find((s) => s.entry === e) || null,
+    // фаза 10: кнопка «В 3D» в карточке выходит из плана и долетает до объекта
+    onExit2D: () => toggle2D(false),
     approach: { theta: Math.PI / 2, phi: Math.PI / 2.35, pad: 2.6 },
 })
 // перебазировка сдвигает мир → сохранённая «точка возврата» должна сдвинуться тоже
@@ -190,7 +211,16 @@ const hud = createRigHud(rig, {
     touch: isTouchDevice(),
     // фаза 4: «Галактика» снизу сбрасывает и выделение, чтобы карточка не висела
     onHome: () => interactor.deselect({ flyBack: false }),
+    // фаза 10: переключатель 3D/2D
+    on2D: () => toggle2D(),
 })
+function toggle2D(force) {
+    const on = rig.setMode2D(force ?? !rig.mode2d)
+    map.set2D(on)
+    hud.set2D(on)
+    interactor.refreshCard?.()
+    return on
+}
 
 /* ══════════════════ поиск по карте ══════════════════ */
 const _proj = new THREE.Vector3()
@@ -212,28 +242,77 @@ function buildSearch() {
     const res = box.querySelector('.res')
     const norm = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').trim()
 
+    // Фаза 9: поиск по ВСЕЙ базе: системы, звёзды, планеты, секторы, регионы,
+    // необследованные узлы. Индекс строится ОДИН раз (и перестраивается только
+    // при изменении состава карты) — на телефоне поиск не тормозит.
+    let INDEX = null, INDEX_KEY = ''
+    function buildIndex() {
+        const idx = []
+        const add = (o) => { o.n = norm(o.name); o.s = norm(o.sub || ''); idx.push(o) }
+        for (const n of map.named()) {
+            const e = n.sys?.entry ?? n
+            const sec = map.sectorOf(n.pos)
+            add({ name: e.name, tag: 'система', tc: 't-sys', chip: map.starChip(e),
+                sub: sec + (e.role ? ' · ' + e.role : ''), act: () => interactor.focusSystem(e) })
+            if (e.star) add({ name: e.star.name || e.name, tag: 'звезда', tc: 't-star', chip: map.starChip(e),
+                sub: e.name + (e.star.kind ? ' · ' + e.star.kind : '') + ' · ' + sec, act: () => interactor.focusStar(e) })
+            ;(e.planets || []).forEach((pl, i) => add({
+                name: pl.name, tag: 'планета', tc: 't-planet', chip: map.planetChip(pl),
+                sub: e.name + (pl.kind ? ' · ' + pl.kind : '') + (pl.orbit ? ' · орб. ' + pl.orbit : '') + ' · ' + sec,
+                act: () => interactor.focusPlanet(e, i) }))
+        }
+        for (const sec of map.sectors()) add({ name: sec, tag: 'сектор', tc: 't-sector', chip: '#7fb4ff',
+            sub: map.regionOf(sec)?.name || 'квадрат сетки карты', act: () => flySector(sec) })
+        for (const r of (map.campaign?.regions || [])) add({ name: r.name, tag: 'регион', tc: 't-region',
+            chip: r.color || '#d98aff', sub: (r.sectors || []).length + ' сект.', act: () => flyRegion(r) })
+        for (const nd of map.nodes) {
+            if (nd.system) continue
+            add({ name: 'узел ' + nd.index, tag: 'узел', tc: 't-node', chip: '#6b7280',
+                sub: map.sectorOf(nd.pos) + ' · необследован', act: () => flyNode(nd) })
+        }
+        return idx
+    }
     function search(q) {
         q = norm(q)
         if (q.length < 2) { res.innerHTML = ''; res.classList.remove('open'); return }
+        const key = map.systems.length + '/' + map.nodes.length
+        if (!INDEX || key !== INDEX_KEY) { INDEX = buildIndex(); INDEX_KEY = key }
         const out = []
-        for (const s of map.named()) {
-            if (norm(s.name).includes(q) || norm(s.role).includes(q)) { out.push(s); if (out.length >= 8) break }
+        for (const o of INDEX) {
+            if (o.n.includes(q) || o.s.includes(q) || norm(o.tag).includes(q)) { out.push(o); if (out.length >= 10) break }
         }
         if (!out.length) { res.innerHTML = '<div class="empty">ничего не найдено</div>'; res.classList.add('open'); return }
-        res.innerHTML = out.map((s, i) =>
-            `<button data-i="${i}"><b>${s.name}</b><span>${map.sectorOf(s.pos)}${s.role ? ' · ' + s.role : ''}</span></button>`
+        res.innerHTML = out.map((o, i) =>
+            `<button data-i="${i}"><i class="chip" style="background:${o.chip}"></i><b>${o.name}</b>` +
+            `<span><i class="sq-tag ${o.tc}">${o.tag}</i>${o.sub}</span></button>`
         ).join('')
         res.classList.add('open')
         res.querySelectorAll('button').forEach((b) => {
             b.addEventListener('click', () => {
-                const s = out[+b.dataset.i]
+                const o = out[+b.dataset.i]
                 res.classList.remove('open')
-                input.value = s.name
+                input.value = o.name
                 input.blur()
-                rig.flyTo({ position: rig.toRender(s.pos), dist: 3200, duration: 2.2 })
-                setTimeout(() => interactor.selectAt(...projectToScreen(s.pos)), 2300)
+                o.act()
             })
         })
+    }
+
+    function flyNode(nd) {
+        interactor.deselect({ flyBack: false })
+        rig.flyTo({ position: rig.toRender(nd.pos.clone()), dist: 2500, duration: 2 })
+    }
+    function flySector(sec) {
+        interactor.deselect({ flyBack: false })
+        const c = map.sectorCenter(sec)
+        if (c) rig.flyTo({ position: rig.toRender(c), dist: map.sectorSize * 1.6, duration: 2.2 })
+    }
+    function flyRegion(r) {
+        interactor.deselect({ flyBack: false })
+        const cs = (r.sectors || []).map(map.sectorCenter).filter(Boolean)
+        if (!cs.length) return
+        const c = cs.reduce((a, v) => a.add(v), new THREE.Vector3()).multiplyScalar(1 / cs.length)
+        rig.flyTo({ position: rig.toRender(c), dist: map.sectorSize * Math.max(2, cs.length), duration: 2.4 })
     }
     let t = 0
     input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => search(input.value), 180) })
@@ -253,22 +332,33 @@ function buildSearch() {
 function buildSectorBadge() {
     const el = document.createElement('div')
     el.className = 'app-sector app-ui'
-    el.innerHTML = '<span class="k">Сектор</span><b>—</b><i></i>'
+    // фаза 7: живой счётчик дистанции убран (читался как «плашка скорости»),
+    // осталось только имя сектора
+    el.innerHTML = '<span class="k">Сектор</span><b>—</b><i class="rg"></i>'
     document.body.appendChild(el)
     const b = el.querySelector('b')
-    const i = el.querySelector('i')
+    const rg = el.querySelector('.rg')
     let acc = 0
     rig.on('update', () => {
         if (++acc % 12) return
         const s = map.sectorOf(rig.focusUniverse)
         if (b.textContent !== s) b.textContent = s
-        const near = map.nearestNamed(rig.focusUniverse)
-        if (!near) { i.textContent = ''; return }
-        const d = near.pos.distanceTo(rig.focusUniverse)
-        i.textContent = d < 1 ? near.entry.name + ' · в фокусе' : `${near.entry.name} · ${fmtUnits(d)}`
+        // фаза 8: регион сектора (когда заполнишь CAMPAIGN.regions)
+        const r = map.regionOf(s)
+        const want = r ? r.name : ''
+        if (rg.textContent !== want) {
+            rg.textContent = want
+            rg.style.display = want ? 'inline' : 'none'
+            if (r?.color) rg.style.color = r.color
+        }
     })
     return el
 }
+
+/* Штамп сборки: скажи пользователю «сборка phase-12» — и сразу видно,
+   какая копия кода у него реально работает (рассинхрон = источник «старых» багов). */
+const SWN_BUILD = 'phase-12'
+window.SWN_BUILD = SWN_BUILD
 
 /* ══════════════════ старт ══════════════════ */
 async function boot0() {
@@ -288,7 +378,7 @@ async function boot0() {
     // фаза 4: старт = «вся галактика сверху» — это же положение возвращает
     // кнопка «Галактика» снизу (rig.setHome / flyHome)
     rig.setState({
-        dist: 3.8e5,
+        dist: 1.48e5,             // фаза 8: обзор, в котором граница почти впритык
         theta: 0.5,
         phi: 0.18,
         lookAt: new THREE.Vector3(0, 0, 0),
@@ -332,9 +422,9 @@ window.addEventListener('resize', () => {
 })
 
 /* ══════════════════ отладка из консоли ══════════════════ */
-window.SWN = { THREE, scene, camera, renderer, rig, map, chart: map, interactor, hud, worldRoot }
+window.SWN = { THREE, scene, camera, renderer, rig, map, chart: map, interactor, hud, worldRoot, build: SWN_BUILD, toggle2D }
 console.log(
-    '%cSWN · звёздная карта%c\n' +
+    '%cSWN · звёздная карта%c  сборка ' + SWN_BUILD + '\n' +
     'Консоль: SWN.rig, SWN.chart, SWN.interactor\n' +
     '  SWN.chart.dumpNodes()            — список узлов nebula_mapa.glb\n' +
     '  SWN.chart.named()                — именованные системы\n' +

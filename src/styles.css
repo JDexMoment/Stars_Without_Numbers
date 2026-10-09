@@ -115,6 +115,22 @@ canvas#scene:active { cursor: grabbing; }
 }
 .app-search input::placeholder { color: var(--muted); letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
 .app-search input:focus { border-color: var(--brass); background: rgba(12, 18, 34, .94); }
+/* фаза 8: тег сущности в строке результата (система/звезда/планета/сектор/регион) */
+.app-search .sq-tag {
+    font-style: normal; flex: none; margin-right: 7px;
+    color: var(--brass); border: 1px solid var(--brass-dim);
+    font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+    padding: 1px 5px; clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px);
+}
+.app-search .res button span { display: flex; align-items: center; }
+/* фаза 9: свой цвет на каждый класс сущности */
+.app-search .sq-tag.t-sys { color: var(--brass); border-color: var(--brass-dim); }
+.app-search .sq-tag.t-star { color: #ffb46b; border-color: rgba(255, 180, 107, .45); }
+.app-search .sq-tag.t-planet { color: #7ddc8a; border-color: rgba(125, 220, 138, .45); }
+.app-search .sq-tag.t-sector { color: #7fb4ff; border-color: rgba(127, 180, 255, .45); }
+.app-search .sq-tag.t-region { color: #d98aff; border-color: rgba(217, 138, 255, .45); }
+.app-search .sq-tag.t-node { color: var(--muted); border-color: rgba(154, 143, 118, .35); }
+.app-search .res button .chip { width: 8px; height: 8px; flex: none; transform: rotate(45deg); margin-right: 8px; }
 .app-search .res {
     display: none;
     margin-top: 6px;
@@ -182,26 +198,36 @@ canvas#scene:active { cursor: grabbing; }
 .app-sector {
     position: fixed;
     right: 14px;
-    top: 186px;
+    top: 14px;                 /* фаза 8: на одной высоте с поиском слева */
+    transition: right .25s ease;
     z-index: 930;
     display: flex;
     align-items: baseline;
-    gap: 8px;
-    padding: 8px 14px;
+    gap: 6px;
+    padding: 4px 9px;          /* фаза 7: компактнее */
     background: var(--panel);
     border: 1px solid var(--brass-dim);
     clip-path: var(--bevel-sm);
-    font-size: 11px;
+    font-size: 9px;
     pointer-events: none;
-    max-width: min(360px, calc(100vw - 28px));
+    max-width: min(240px, calc(100vw - 28px));
 }
-.app-sector .k { font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
-.app-sector b { font-size: 14px; color: var(--brass); letter-spacing: .1em; }
-.app-sector i { font-style: normal; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-sector .k { font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.app-sector b { font-size: 11px; color: var(--brass); letter-spacing: .08em; }
+.app-sector i { font-style: normal; color: var(--muted); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* фаза 8: чип региона сектора (появится, когда заполнишь CAMPAIGN.regions) */
+.app-sector .rg { display: none; color: var(--brass); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+/* фаза 10: бейдж静止 справа сверху; когда открыта карточка — бейдж скрыт,
+   карточка встаёт точно на его место (та же высота, тот же правый край) */
+body.has-card .app-sector { display: none; }
 
-/* когда открыта карточка объекта — прячем то, что дублирует её содержимое */
-body.has-card .app-sector { opacity: 0; }
-body.has-card .rig-telemetry { opacity: 0; pointer-events: none; }
+/* фаза 6: плашка скорости уезжает вниз, пока выбран объект */
+body.has-card .rig-speed,
+.rig-speed.ou-hide {
+    transform: translateX(-50%) translateY(calc(100% + 12px));
+    opacity: 0;
+    pointer-events: none;
+}
 
 /* ── мобильная раскладка ──
    Свободные зоны на телефоне:

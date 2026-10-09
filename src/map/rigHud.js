@@ -35,19 +35,6 @@ export function createRigHud(rig, opts = {}) {
     const root = document.createElement('div')
     root.className = 'rig-hud' + (touch ? ' touch' : '')
     root.innerHTML = `
-        <div class="rig-telemetry pe ${showTelemetry ? '' : 'collapsed'}">
-            <h4><span>Навигация</span><button data-act="collapse" title="Свернуть">–</button></h4>
-            <div class="rig-body">
-                <div class="rig-row"><span>${labels.dist}</span><span data-t="dist">—</span></div>
-                <div class="rig-row"><span>${labels.vel}</span><span data-t="vel">—</span></div>
-                <div class="rig-row"><span>${labels.pos}</span><span data-t="pos">—</span></div>
-                <div class="rig-row"><span>near / far</span><span data-t="clip">—</span></div>
-                <div class="rig-row"><span>FPS</span><span data-t="fps">—</span></div>
-                <div class="rig-row"><span>Ребазировок</span><span data-t="rebase">0</span></div>
-                <div class="rig-row" data-t="state" style="justify-content:flex-start;flex-wrap:wrap"></div>
-            </div>
-        </div>
-
         <div class="rig-bookmarks"></div>
         <div class="rig-mode" data-t="mode"></div>
 
@@ -63,12 +50,14 @@ export function createRigHud(rig, opts = {}) {
             <div class="rig-speed-btns">
                 <button class="rig-btn" data-act="fine">${labels.fine} · Space</button>
                 <button class="rig-btn" data-act="boost">${labels.boost} · Shift</button>
-                <button class="rig-btn ghost" data-act="home">${labels.home} · Home</button>
+                <button class="rig-btn" data-act="dim">План · 2D</button>
+                <button class="rig-btn" data-act="home">${labels.home} · Home</button>
             </div>
         </div>
 
         <button class="rig-help-btn pe" data-act="help" title="${labels.help}">?</button>
         <div class="rig-help pe">
+            <p class="rig-build">сборка: ${window.SWN_BUILD || 'dev'}</p>
             <h5>Мышь</h5>
             <p><span class="k">ЛКМ</span>вращение вокруг точки фокуса</p>
             <p><span class="k">ПКМ</span>панорамирование (Shift+ЛКМ — то же)</p>
@@ -76,13 +65,20 @@ export function createRigHud(rig, opts = {}) {
             <h5>Полёт</h5>
             <p><span class="k">W A S D</span>движение в плоскости взгляда</p>
             <p><span class="k">Q</span><span class="k">E</span>вниз / вверх</p>
-            <p><span class="k">Shift</span>ускоритель ×8 (+ рывок поля зрения)</p>
-            <p><span class="k">Space</span>точный режим ×0.12 — для орбит планет</p>
+            <p><span class="k">Shift</span>ускоритель ×8 — защёлка (вкл/выкл)</p>
+            <p><span class="k">Space</span>точный режим ×0.12 — защёлка (вкл/выкл)</p>
             <h5>Скорость</h5>
             <p><span class="k">0…9</span><span class="k">[</span><span class="k">]</span>ручной множитель ×0.1…×10</p>
             <p class="note">Базовая скорость растёт вместе с дистанцией до точки
             фокуса, поэтому один и тот же W аккуратно ведёт корабль у планеты
             и пересекает галактику на большом масштабе.</p>
+            <h5>План · 2D</h5>
+            <p><span class="k">Кнопка</span>«План · 2D» — плоский чертёж галактики сверху:</p>
+            <p class="note">Видны секторная сетка, квадраты систем с подписями и
+            маршруты; при подлёте к системе проявляются волосяные орбиты и цветные
+            точки планет на них. Переходы в план и обратно не крутят карту. Клик по маркеру —
+            карточка объекта; кнопка «В 3D» вернёт объёмный вид к выбранному объекту.
+            ЛКМ в плане — панорамирование, колесо — масштаб.</p>
             <h5>Прочее</h5>
             <p><span class="k">Home</span>вернуться в домашнюю точку</p>
             <p><span class="k">Клик</span>по звезде/планете — подлёт и карточка объекта</p>
@@ -100,7 +96,6 @@ export function createRigHud(rig, opts = {}) {
 
     const $ = (sel) => root.querySelector(sel)
     const t = (name) => root.querySelector(`[data-t="${name}"]`)
-    const telem = root.querySelector('.rig-telemetry')
 
     /* ---------- закладки ---------- */
     const bmBox = $('.rig-bookmarks')
@@ -137,10 +132,7 @@ export function createRigHud(rig, opts = {}) {
         if (!btn) return
         const act = btn.dataset.act
         if (act === 'help') $('.rig-help').classList.toggle('open')
-        if (act === 'collapse') {
-            telem.classList.toggle('collapsed')
-            btn.textContent = telem.classList.contains('collapsed') ? '+' : '–'
-        }
+        if (act === 'dim') { opts.on2D && opts.on2D() }
         if (act === 'home') { opts.onHome && opts.onHome(); rig.flyHome() }
     })
     // удерживаемые кнопки (мышь и палец)
@@ -151,8 +143,13 @@ export function createRigHud(rig, opts = {}) {
         el.addEventListener('pointerleave', stop)
         el.addEventListener('pointercancel', stop)
     }
-    hold(boostBtn, () => touchBoost(true), () => touchBoost(false))
-    hold(fineBtn, () => touchFine(true), () => touchFine(false))
+    // фаза 8: кнопки — защёлки (вкл/выкл по нажатию), синхронны с клавишами
+    fineBtn.addEventListener('click', () => rig.toggleFine())
+    boostBtn.addEventListener('click', () => rig.toggleBoost())
+    rig.on('sticky', (st) => {
+        fineBtn.classList.toggle('on', !!st.fine)
+        boostBtn.classList.toggle('on', !!st.boost)
+    })
     let touchFlags = { boost: false, fine: false }
     const touchBoost = (v) => { touchFlags.boost = v; pushStick() }
     const touchFine = (v) => { touchFlags.fine = v; pushStick() }
@@ -237,35 +234,24 @@ export function createRigHud(rig, opts = {}) {
     rig.on('update', (s) => {
         acc++
         if (acc % 4 !== 0) return     // обновляем текст раз в 4 кадра — меньше мусора в layout
-        t('dist').textContent = fmtUnits(s.dist, units)
-        t('vel').textContent = s.speed > 0.01 ? `${fmtUnits(s.speed, units)}/с` : '0'
-        t('pos').textContent = `${fmtNum(s.focus.x)} ${fmtNum(s.focus.y)} ${fmtNum(s.focus.z)}`
-        t('clip').textContent = `${fmtNum(s.near)} / ${fmtNum(s.far)}`
-        t('fps').textContent = s.fps.toFixed(0)
-        t('rebase').textContent = String(s.rebases)
-        t('mul').textContent = `×${s.speedMul.toFixed(2)}`
-
-        const badges = []
-        if (s.boost) badges.push('<span class="rig-badge">УСКОРИТЕЛЬ</span>')
-        if (s.fine) badges.push('<span class="rig-badge">ТОЧНО</span>')
-        if (s.following) badges.push('<span class="rig-badge">СЛЕЖЕНИЕ</span>')
-        if (s.flying) badges.push('<span class="rig-badge warn">ПЕРЕЛЁТ</span>')
-        if (s.speedMul > 1.01) badges.push(`<span class="rig-badge">×${s.speedMul.toFixed(1)}</span>`)
-        t('state').innerHTML = badges.join('')
+        // фаза 6: телеметрия убрана — остаётся только множитель скорости на плашке
+        const mul = t('mul')
+        if (mul) mul.textContent = `×${s.speedMul.toFixed(2)}`
     })
 
-    rig.on('rebase', () => {
-        const el = t('rebase')
-        el.style.color = '#ffb04f'
-        setTimeout(() => { el.style.color = '' }, 400)
-    })
+
 
     function setTouch(v) { root.classList.toggle('touch', !!v) }
     setTouch(touch)
 
     function dispose() { root.remove() }
 
-    return { el: root, setMode, setTouch, dispose, pushStick }
+    const dimBtn = root.querySelector('[data-act="dim"]')
+    function set2D(on) {
+        dimBtn.classList.toggle('on', !!on)
+        dimBtn.textContent = on ? 'Объём · 3D' : 'План · 2D'
+    }
+    return { el: root, setMode, setTouch, dispose, pushStick, set2D }
 }
 
 export function isTouchDevice() {

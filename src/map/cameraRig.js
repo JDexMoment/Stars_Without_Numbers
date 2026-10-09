@@ -74,7 +74,7 @@ export const RIG_DEFAULTS = {
     zoomTouchRate: 1.15,  // чувствительность пинча
     zoomLambda: 0.14,     // сглаживание зума (0.14 мягко, 0.35 резко)
     minDist: 0.6,
-    maxDist: 3.8e5,       // фаза 4: галактика R=300 000 видна целиком сверху (300k/0.83≈362k + запас)
+    maxDist: 1.7e5,       // фаза 10: отдаление чуть больше прежнего
     focusOffset: 0,       // фаза 4: доля полуширины экрана, на которую цель уводится ВПРАВО
                           // (сам объект при этом виден левее центра — карточка справа не перекрывает)
                           // но улететь «в ничто» за её пределы уже нельзя
@@ -144,6 +144,10 @@ export function createCameraRig(camera, domElement, options = {}) {
     let speedMul = 1                           // ручной множитель
     const speedMulSmooth = { v: 1 }
     let boost = false, fine = false
+    // фаза 8: «Точно» и «Ускоритель» — защёлки: нажал = держится, нажал ещё раз = выкл
+    let sticky = { boost: false, fine: false }
+    // фаза 10: 2D-план: вид строго сверху, ЛКМ = панорама, углы заморожены
+    let mode2d = false, prev3d = null
 
     let subject = null                         // объект, за которым летим
     const subjectPos = new THREE.Vector3()
@@ -170,6 +174,17 @@ export function createCameraRig(camera, domElement, options = {}) {
     function onKeyDown(e) {
         if (isField(e.target) || e.metaKey) return
         const c = e.code
+        // фаза 8: Space («точно») и Shift («ускоритель») — ЗАЩЁЛКИ:
+        // нажатие включает режим до следующего нажатия, а не пока держишь
+        if (c === 'Space' || c === 'ShiftLeft' || c === 'ShiftRight') {
+            e.preventDefault()
+            if (!e.repeat) {
+                if (c === 'Space') sticky.fine = !sticky.fine
+                else sticky.boost = !sticky.boost
+                emit('sticky', { fine: sticky.fine, boost: sticky.boost })
+            }
+            return
+        }
         if (MOVE_KEYS.has(c)) { keys.add(c); if (PREVENT.has(c)) e.preventDefault(); return }
         switch (c) {
             case 'BracketLeft': stepSpeed(-1); e.preventDefault(); break
@@ -180,7 +195,7 @@ export function createCameraRig(camera, domElement, options = {}) {
         }
     }
     const onKeyUp = (e) => keys.delete(e.code)
-    const onBlur = () => { keys.clear() }
+    const onBlur = () => { keys.clear(); rotInput.x = rotInput.y = 0; panInput.x = panInput.y = 0 }
 
     /* ═══════════ указатели (мышь + тач в одном месте) ═══════════ */
     const pointers = new Map()
@@ -217,7 +232,8 @@ export function createCameraRig(camera, domElement, options = {}) {
         p.x = e.clientX; p.y = e.clientY
 
         if (pointers.size >= 2) { updatePinch(); return }
-        const pan = p.type === 'mouse' ? (p.button === 2 || e.shiftKey) : false
+        // в 2D любое перетаскивание = панорама (орбита не нужна)
+        const pan = p.type === 'mouse' ? (p.button === 2 || e.shiftKey || mode2d) : false
         if (pan) { panInput.x += dx; panInput.y += dy } else { rotInput.x += dx; rotInput.y += dy }
     }
 
@@ -314,10 +330,16 @@ export function createCameraRig(camera, domElement, options = {}) {
     function flyTo({
         position = null, dist = null, theta = null, phi = null,
         duration = 1.6, ease = 'power2.inOut', subject: subj = null,
-        onComplete = null, onUpdate = null,
+        onComplete = null, onUpdate = null, freezeAngles = false,
     } = {}) {
         cancelFlight()
         vel.set(0, 0, 0)
+        rotInput.x = rotInput.y = 0
+        panInput.x = panInput.y = 0
+        // фаза 12: железное правило — перелёт, которому НЕ задали углы явно,
+        // не меняет их вовсе (никакого «доворота» и карусели на переходах).
+        // Крутят только: рука пользователя, «Галактика» и выход из 2D-плана.
+        if (theta == null && phi == null) freezeAngles = true
 
         if (subj !== undefined) {
             subject = subj
@@ -360,11 +382,14 @@ export function createCameraRig(camera, domElement, options = {}) {
                 sphTarget.dist = clamp(Math.exp(logD) * bulge, o.minDist, o.maxDist)
                 sphTarget.theta = from.theta + (to.theta - from.theta) * t
                 sphTarget.phi = from.phi + (to.phi - from.phi) * t
+                // фаза 8: дальний перелёт НЕ доворачивает камеру: углы заморожены
+                if (freezeAngles) { sphTarget.theta = from.theta; sphTarget.phi = from.phi }
                 onUpdate?.(t)
             },
             onComplete: () => {
                 flightTween = null; flightFrom = null
                 sphTarget.dist = to.dist
+                if (freezeAngles) { sphTarget.theta = from.theta; sphTarget.phi = from.phi }
                 vel.set(0, 0, 0)
                 onComplete?.()
             },
@@ -427,6 +452,20 @@ export function createCameraRig(camera, domElement, options = {}) {
         sphTarget.phi = clamp(sphTarget.phi + dPhi, o.phiMin, o.phiMax)
     }
     function onRebase(fn) { on('rebase', fn) }
+    /* фаза 10: вход/выход из 2D-плана */
+    function setMode2D(on) {
+        on = !!on
+        if (on === mode2d) return mode2d
+        if (on) prev3d = { theta: sph.theta, phi: sph.phi, dist: sph.dist }
+        mode2d = on
+        emit('mode2d', on)
+        if (!on && prev3d) flyTo({ theta: prev3d.theta, phi: prev3d.phi, dist: prev3d.dist, duration: 1.1 })
+        return mode2d
+    }
+
+    /* фаза 8: защёлки «точно» / «ускоритель» */
+    function toggleFine() { sticky.fine = !sticky.fine; emit('sticky', { fine: sticky.fine, boost: sticky.boost }); return sticky.fine }
+    function toggleBoost() { sticky.boost = !sticky.boost; emit('sticky', { fine: sticky.fine, boost: sticky.boost }); return sticky.boost }
 
     /* ═══════════ update ═══════════ */
     const _fwd = new THREE.Vector3()
@@ -463,10 +502,10 @@ export function createCameraRig(camera, domElement, options = {}) {
             keySmooth[a] += (t - keySmooth[a]) * (Math.abs(t) > Math.abs(keySmooth[a]) ? up : down)
             if (Math.abs(keySmooth[a]) < 1e-4) keySmooth[a] = 0
         }
-        boost = keys.has('ShiftLeft') || keys.has('ShiftRight') || externalInput.boost === true
+        boost = sticky.boost || externalInput.boost === true
         // Space = точный режим. Ctrl НЕ используем: Ctrl+W и т.п. — это шорткаты браузера,
         // игрок просто потеряет вкладку, когда захочет подлететь медленнее.
-        fine = keys.has('Space') || externalInput.fine === true
+        fine = sticky.fine || externalInput.fine === true
 
         // «игрок повёл корабль сам» — сообщить один раз за жест
         if (raw.f || raw.r || raw.u) noteUserMove()
@@ -474,7 +513,10 @@ export function createCameraRig(camera, domElement, options = {}) {
     }
 
     function update(dtRaw) {
-        const dt = clamp(dtRaw, 0.0005, 0.05)
+        // фаза 7: кламп dt поднят: экспоненциальный damp устойчив при любом dt,
+        // а на медленных машинах (и software-GL) сглаживание теперь поспевает
+        // за реальным временем вместо многократного отставания
+        const dt = clamp(dtRaw, 0.0005, 0.25)
         if (paused) return api
 
         if (locked) {
@@ -548,6 +590,14 @@ export function createCameraRig(camera, domElement, options = {}) {
         } else {
             vel.multiplyScalar(Math.exp(-9 * dt))
         }
+
+        /* 4.5 фаза 10: в 2D-плане наклон принудительно сверху.
+           theta НЕ трогаем: иначе вход в план закручивал карту каруселью.
+           фаза 11: up камеры в плане = -Z (иначе up ∥ оси взгляда и кадр
+           «рвёт» от численного шума lookAt — те самые «4 части и крутится»). */
+        if (mode2d) sphTarget.phi = 0.035
+        _up.set(0, mode2d ? 0 : 1, mode2d ? -1 : 0)
+        camera.up.copy(_up)
 
         /* 5. интеграция + сглаживание всех каналов (кадронезависимо) */
         focusTarget.addScaledVector(vel, dt)
@@ -749,7 +799,11 @@ export function createCameraRig(camera, domElement, options = {}) {
             if (externalInput.f || externalInput.r || externalInput.u) noteUserMove()
             else moveNotified = false
         },
-        on, onRebase, telemetry,
+        on, onRebase, telemetry, toggleFine, toggleBoost, setMode2D,
+        get flying() { return !!flightTween },
+        get mode2d() { return mode2d },
+        get fineOn() { return sticky.fine },
+        get boostOn() { return sticky.boost },
         get dist() { return sph.dist },
         get isFlying() { return !!flightTween },
         get isLocked() { return locked },

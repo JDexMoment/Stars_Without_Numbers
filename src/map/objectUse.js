@@ -70,8 +70,36 @@ const UI_CSS = `
     font-family: var(--ou-mono);
 }
 .ou-close:hover { background: var(--ou-brass); color: #0a0e1a; }
+/* фаза 6: крестик живёт внутри шапки карточки */
+.ou-close.in-card { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+    font-size: 12px; z-index: 3; }
+/* фаза 6: появление / уход / сворачивание карточки + «расшифровка» строк */
+@keyframes ouIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes ouOut { to { opacity: 0; transform: translateY(10px); } }
+@keyframes decrypt { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: none; } }
+.ou-card { animation: ouIn .24s ease-out; }
+.ou-card.closing { animation: ouOut .19s ease-in forwards; pointer-events: none; }
+.ou-card .stat, .ou-card .ou-planets li, .ou-card .ou-note, .ou-card .acts {
+    animation: decrypt .4s both; }
+.ou-card .ou-planets li { animation-delay: .18s; }
+.ou-card .ou-note { animation-delay: .26s; }
+.ou-card .acts { animation-delay: .3s; }
+.ou-head { cursor: pointer; }   /* клик по шапке = свернуть/раскрыть */
+.ou-body { display: grid; grid-template-rows: 1fr; opacity: 1;
+    transition: grid-template-rows .26s ease, opacity .22s ease; }
+.ou-body-in { overflow: hidden; min-height: 0; }
+.ou-card.collapsed .ou-body { grid-template-rows: 0fr; opacity: 0; }
+.ou-card.collapsed .ou-head { margin-bottom: 0; padding-bottom: 6px; border-bottom-width: 1px; }
+/* фаза 7: стрелка «развернуть» видна только на свёрнутой карточке */
+.ou-chev { display: none; margin-left: auto; align-self: center; color: var(--ou-brass);
+    font-size: 13px; line-height: 1; padding: 2px 32px 2px 6px; }
+.ou-card.collapsed .ou-chev { display: inline-block; }
+/* строки планет кликабельны */
+.ou-planets li[data-p] { cursor: pointer; }
+.ou-planets li[data-p]:hover { background: rgba(201, 168, 94, .10); }
+.ou-planets li[data-p]:hover b { color: var(--ou-brass); }
 .ou-card {
-    position: fixed; top: 70px; right: 18px; z-index: 999; width: min(340px, calc(100vw - 36px));
+    position: fixed; top: 14px; right: 14px; z-index: 999;  /* фаза 10: на месте бейджа, на высоте поиска */ width: min(340px, calc(100vw - 36px));
     background: var(--ou-panel); border: 1px solid var(--ou-brass-dim);
     clip-path: var(--ou-bevel);
     padding: 16px 18px 14px; display: none;
@@ -191,6 +219,7 @@ export function createObjectInteractor(scene, rig, opts = {}) {
     let state = 'IDLE'             // IDLE | FLYING_TO | FOLLOWING | FLYING_BACK
     let rotBefore = null
     let saved = null               // { focus, dist, theta, phi } — куда возвращаться
+    let flightStartedAt = 0, flightDurS = 0
     let draggingObject = false
     let orbitingCamera = false
     let downAt = { x: 0, y: 0, t: 0, button: -1, id: null }
@@ -236,7 +265,9 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         const sub = info.subtitle ?? info.sub ?? ''
         const stats = info.stats || info.rows || []
         card.innerHTML =
-            '<div class="ou-head"><div class="ou-title"><h3></h3><div class="sub"></div></div></div>' +
+            '<div class="ou-head"><div class="ou-title"><h3></h3><div class="sub"></div></div>' +
+            '<span class="ou-chev" title="Развернуть информацию">▾</span></div>' +
+            '<div class="ou-body"><div class="ou-body-in">' +
             '<div class="ou-stats">' +
             stats.map(() => '<span class="stat"><b></b><i></i><span></span></span>').join('') +
             '</div>' +
@@ -244,28 +275,58 @@ export function createObjectInteractor(scene, rig, opts = {}) {
             (info.planets ? '<ul class="ou-planets">' + info.planets + '</ul>' : '') +
             (info.hint ? '<div class="ou-note">' + info.hint + '</div>' : '') +
             '<div class="acts">' +
-            '<button data-a="frame">Вписать</button>' +
-            '<button data-a="closer">Ближе</button>' +
-            '<button data-a="top">Сверху</button>' +
+            (rig.mode2d
+                ? '<button data-a="to3d">В 3D</button><button data-a="collapse">Свернуть</button>'
+                : '<button data-a="closer">Ближе</button>' +
+                  '<button data-a="out">Отдалить</button>' +
+                  '<button data-a="collapse">Свернуть</button>') +
             '</div>' +
-            (info.distanceText ? '<div class="ou-dist">дистанция · ' + esc(info.distanceText) + '</div>' : '')
+            (info.distanceText ? '<div class="ou-dist">дистанция · ' + esc(info.distanceText) + '</div>' : '') +
+            '</div></div>'
         card.querySelector('h3').textContent = title
         card.querySelector('.sub').textContent = sub
         const rowEls = card.querySelectorAll('.stat')
         stats.forEach((r, i) => {
             rowEls[i].querySelector('b').textContent = r[0]
             rowEls[i].querySelector('span').textContent = r[1]
+            // фаза 6: «расшифровка» — строки информации проявляются по очереди
+            rowEls[i].style.animationDelay = (0.06 + i * 0.05).toFixed(2) + 's'
         })
+        card.querySelector('.ou-head').appendChild(closeBtn)  // крестик — внутри шапки
+        card.classList.remove('collapsed')
+        clearTimeout(cardHideTimer)
+        card.classList.remove('closing')
         card.style.display = 'block'
+        closeBtn.style.display = 'flex'
+        closeBtn.classList.add('in-card')   // крестик живёт внутри карточки
+        document.querySelector('.rig-speed')?.classList.add('ou-hide')
+        // фаза 10: бейдж сектора на время карточки скрыт — она встаёт ТОЧНО на его место
+        card.style.right = ''
     }
 
     card.addEventListener('click', (e) => {
         const b = e.target.closest('button')
-        if (!b || !selected) return
-        if (b.dataset.a === 'frame') rig.frameObject(selected, { pad: approach.pad })
-        if (b.dataset.a === 'closer') rig.flyTo({ dist: Math.max(rig.dist * 0.45, rig.options.minDist), duration: 0.9, subject: selected })
-        if (b.dataset.a === 'top') rig.flyTo({ phi: 0.35, duration: 1.1, subject: selected })
-        e.stopPropagation()
+        if (b && selected) {
+            if (b.dataset.a === 'closer') rig.flyTo({ dist: Math.max(rig.dist * 0.45, rig.options.minDist), duration: 0.9, subject: selected })
+            if (b.dataset.a === 'out') rig.flyTo({ dist: Math.min(rig.dist * 2.2, rig.options.maxDist), duration: 0.9, subject: selected })
+            if (b.dataset.a === 'collapse') card.classList.add('collapsed')
+            if (b.dataset.a === 'to3d') { opts.onExit2D?.(); refocus3D() }
+            e.stopPropagation()
+            return
+        }
+        // фаза 6: клик по шапке карточки (не по кнопке) сворачивает/раскрывает
+        // информацию — объект остаётся выбранным
+        // фаза 7: строка планеты в списке = выбрать её и подлететь
+        const pli = e.target.closest('.ou-planets li[data-p]')
+        if (pli && selectedHit) {
+            const rec = selectedHit.entry?.entry ?? selectedHit.entry
+            focusPlanet(rec, +pli.dataset.p)
+            return
+        }
+        if (e.target.closest('.ou-head') && selected) {
+            card.classList.toggle('collapsed')
+            e.stopPropagation()
+        }
     })
 
     /* ---------- вспомогательное ---------- */
@@ -302,9 +363,54 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         if (!opts.pick) return false
         const hit = opts.pick(clientX, clientY)
         if (!hit || !hit.object) return false
+        return selectHit(hit)
+    }
 
+    /* Фаза 10: выйти из 2D и заново выбрать текущий объект уже с перелётом в 3D. */
+    function refocus3D() {
+        const h = selectedHit
+        if (!h) return
+        selected = null
+        selectHit(h)
+    }
+
+    /* Фаза 8: программный выбор для поиска и строк карточки. */
+    function focusSystem(entry) {
+        const sysObj = opts.getSystem?.(entry)
+        if (!sysObj) return false
+        return selectHit({ kind: 'system', object: sysObj.group, radius: (sysObj.span || 1000) / 2.4, entry })
+    }
+    function focusStar(entry) {
+        const sysObj = opts.getSystem?.(entry)
+        const m = sysObj?.starMesh
+        if (!m) return false
+        return selectHit({
+            kind: 'planet', object: m, radius: m.userData.radius || 1,
+            name: entry.star?.name || entry.name, planet: entry.star || null, entry,
+        })
+    }
+    function focusPlanet(entry, i) {
+        const sysObj = opts.getSystem?.(entry)
+        const orb = sysObj?.orbiters?.[i]
+        if (!orb) return false
+        let mesh = null
+        orb.planetGroup.traverse((mm) => { if (!mesh && mm.isMesh) mesh = mm })
+        const spec = entry.planets?.[i]
+        return selectHit({
+            kind: 'planet', object: orb.planetGroup,
+            radius: mesh?.userData.radius ?? spec?.radius ?? 1,
+            name: spec?.name || 'Планета', planet: spec || null, entry,
+        })
+    }
+
+    /* Фаза 7: общий вход выбора: и клик по карте, и клик по строке планеты
+       в карточке объекта. */
+    function selectHit(hit) {
         const obj = hit.object
-        if (selected === obj && (state === 'FLYING_TO' || state === 'FOLLOWING')) return true
+        if (selected === obj && (state === 'FLYING_TO' || state === 'FOLLOWING')) {
+            card.classList.remove('collapsed')   // раскрыть, если свёрнута
+            return true
+        }
 
         if (selected && selected !== obj) resetObjectRotation(selected)
 
@@ -318,21 +424,30 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         const r = hit.radius ?? radiusOf(focusObj)
         // фаза 5: клик по системе/звезде (не по планете) — камера вписывает всю
         // систему до внешней орбиты; span считает buildSystem в chartMap
-        const isSystem = !!(hit.entry && !hit.planet)
-        const dist = isSystem
-            ? clamp((hit.entry.span || r * 6) * 2.4, rig.options.minDist, rig.options.maxDist)
-            : clamp(r * approach.pad, rig.options.minDist, rig.options.maxDist)
+        const isSystem = hit.kind === 'system'     // клик по узлу/подписи издалека
+        // фаза 10: в 2D-плане не летаем — только центрируем и открываем карточку
+        const flat = !!rig.mode2d
+        const dist = flat
+            ? rig.dist
+            : isSystem
+                ? clamp((hit.entry?.span || r * 6) * 2.4, rig.options.minDist, rig.options.maxDist)
+                : clamp(r * approach.pad, rig.options.minDist, rig.options.maxDist)
         // фаза 5: чем больше перепад масштаба, тем дольше перелёт — издалека
         // камера едет плавно, а не «прыгает» половину пути за пол-анимации
         const dur = Math.min(4.0, Math.max(1.2, 1.1 + Math.log10(Math.max(1, rig.dist / dist)) * 0.75))
 
         // ВАЖНО: state ставим ПОСЛЕ flyTo. flyTo внутри вызывает cancelFlight(),
         // который шлёт 'flightCancel' — обработчик не должен увидеть свежий FLYING_TO.
+        // фаза 10: не доворачиваем камеру, если перелёт УЖЕ идёт (например, сразу
+        // после «Галактика») или дистанция велика — иначе выглядит как «кручение»
+        const farSel = flat || rig.dist > 8000 || !!rig.flying
         rig.flyTo({
             dist,
-            theta: approach.theta,
-            phi: approach.phi,
+            // фаза 9: издалека углы ЯВНО равны текущим — камера не доворачивается
+            theta: farSel ? rig.sph.theta : approach.theta,
+            phi: farSel ? rig.sph.phi : approach.phi,
             subject: focusObj,        // летим ЗА объектом: планета на орбите не «уедет»
+            freezeAngles: farSel,     // фаза 8: издалека камера НЕ доворачивается
             duration: opts.flyDuration ?? dur,
             onComplete: () => {
                 state = 'FOLLOWING'
@@ -342,6 +457,8 @@ export function createObjectInteractor(scene, rig, opts = {}) {
             },
         })
         state = 'FLYING_TO'
+        flightStartedAt = performance.now()
+        flightDurS = opts.flyDuration ?? dur
         // фаза 4: объект встаёт левее центра экрана — карточка справа не перекрывает
         rig.setFocusOffset && rig.setFocusOffset(0.3)
 
@@ -354,6 +471,19 @@ export function createObjectInteractor(scene, rig, opts = {}) {
         return true
     }
 
+    // фаза 10: страховка: «зависший» перелёт (gsap не дал onComplete) домykaем сами,
+    // чтобы камера никогда не крутилась бесконечно
+    function arriveNow() {
+        state = 'FOLLOWING'
+        rig.followObject(focusObj)
+        rig.setLocked(false)
+        showHint()
+    }
+    rig.on('update', () => {
+        if (state === 'FLYING_TO' && flightStartedAt &&
+            performance.now() - flightStartedAt > flightDurS * 1000 + 5000) arriveNow()
+    })
+
     function showHint() {
         hint.classList.add('on')
         clearTimeout(hintTimer)
@@ -361,12 +491,24 @@ export function createObjectInteractor(scene, rig, opts = {}) {
     }
 
     /* ---------- снятие выбора / возврат ---------- */
+    let cardHideTimer = 0
+    function hideCardAnimated() {
+        card.classList.add('closing')
+        clearTimeout(cardHideTimer)
+        cardHideTimer = setTimeout(() => {
+            card.style.display = 'none'
+            card.classList.remove('closing')
+        }, 190)
+    }
     function deselect({ flyBack = true } = {}) {
         if (!selected) return
         hint.classList.remove('on')
         rig.setFocusOffset && rig.setFocusOffset(0)   // фаза 4: возврат прицела в центр
         closeBtn.style.display = 'none'
-        card.style.display = 'none'
+        document.querySelector('.rig-speed')?.classList.remove('ou-hide')
+        card.style.right = ''
+
+        hideCardAnimated()
         syncMode()
         document.body.classList.remove('has-card')
         resetObjectRotation(selected)
@@ -575,7 +717,8 @@ export function createObjectInteractor(scene, rig, opts = {}) {
 
     return {
         update, dispose, scanAnimated, registerAnimated, unregisterAnimated,
-        selectAt, deselect, showCard,
+        selectAt, deselect, showCard, focusSystem, focusStar, focusPlanet, refocus3D,
+        refreshCard: () => { if (selectedHit) showCard(selectedHit) },
         get mode() { return mode },
         get dragging() { return draggingObject || orbitingCamera },
         get savedState() { return saved },

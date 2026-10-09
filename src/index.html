@@ -21,6 +21,22 @@
       собирает всё вместе: renderer → мир → риг камеры → интерактор → HUD.
     -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.15.0/gsap.min.js" integrity="sha512-oJ8QbaQThQoJZ7oEv+29jfPM6CcP+zUxh3PKJs1vyOhx0UraUrE7PQgeItu3dOuCJyrzWpoYMsVjkkPEBzbUqw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+      // Самодиагностика: любая ошибка скрипта/загрузки видна прямо в оверлее
+      // загрузки вместо «бесконечной загрузки» (работает до загрузки модулей)
+      window.__bootErr = function (msg) {
+        var b = document.getElementById('boot')
+        if (!b) return
+        var s = b.querySelector('.s')
+        if (s) s.textContent = 'ОШИБКА: ' + String(msg).slice(0, 160)
+        var bar = b.querySelector('.bar > i')
+        if (bar) bar.style.background = '#a33'
+      }
+      window.addEventListener('error', function (e) { window.__bootErr(e.message || 'error') })
+      window.addEventListener('unhandledrejection', function (e) {
+        window.__bootErr((e.reason && (e.reason.message || e.reason.message === '' ? e.reason.message : e.reason)) || 'rejection')
+      })
+    </script>
     <script type="module" src="/map/main.js"></script>
 </body>
 </html>

@@ -1,9 +1,27 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-// «жирные» линии (linewidth в пикселях): обычные THREE.Line всегда в 1 px
-import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
-import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
-import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
+
+/* «Жирные» линии (linewidth в пикселях) грузим ДИНАМИЧЕСКИ: на старых three
+   без алиаса three/addons статический импорт уронил бы ВЕСЬ модуль карты
+   («бесконечная загрузка»). Не удалось — маршруты деградируют до тонких
+   линий, но карта живёт. */
+let FAT = null, FAT_TRIED = false
+async function loadFat() {
+    if (FAT_TRIED) return FAT
+    FAT_TRIED = true
+    try {
+        const [m1, m2, m3] = await Promise.all([
+            import('three/addons/lines/LineSegments2.js'),
+            import('three/addons/lines/LineSegmentsGeometry.js'),
+            import('three/addons/lines/LineMaterial.js'),
+        ])
+        FAT = { L2: m1.LineSegments2, LG: m2.LineSegmentsGeometry, LM: m3.LineMaterial }
+    } catch (e) {
+        console.warn('fat-lines недоступны — маршруты тонкими линиями:', e?.message || e)
+        FAT = false
+    }
+    return FAT
+}
 import { mulberry32, hashString } from './rng.js'
 import { makeGlowTexture, makeStarTexture, makeNodeTexture, makeLabelTexture } from './uiTextures.js'
 import { SYSTEMS, CAMPAIGN } from './systems.data.js'
@@ -32,7 +50,7 @@ const WORLD_R = 300000                // радиус звёздного обл�
                                       // Облако НАМНОГО больше паутины узлов: паутина —
                                       // это освоенный сектор ВНУТРИ галактики, а не вся она
 const CHART_SPAN = 114000             // диаметр карты-«паутины» (nebula_mapa)
-const SECTOR = 60000                  // шаг сетки секторов (фаза 4: сетка на всю галактику)
+const SECTOR = 10000                  // фаза 9: каждый квадрат прежней сетки поделён на 9 (3×3)
 const BOUNDS = { radius: 200000, height: 22000 }  // фаза 5: граница секторов и полёта 200 000
 const ORBIT_SLOW = 0.3                // общий замедлитель орбит планет вокруг звёзд
 
@@ -180,14 +198,23 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             }
         }
         routesN = pos.length / 6
-        const geo = new LineSegmentsGeometry()
-        geo.setPositions(pos)
-        const mat = new LineMaterial({
-            color: 0xf0c463, linewidth: 3.4, transparent: true, opacity: 0.92,
-            depthWrite: false, worldUnits: false,
-        })
-        mat.resolution.set(window.innerWidth, window.innerHeight)
-        routesObj = new LineSegments2(geo, mat)
+        if (FAT) {
+            const geo = new FAT.LG()
+            geo.setPositions(pos)
+            const mat = new FAT.LM({
+                color: 0xf0c463, linewidth: 3.4, transparent: true, opacity: 0.92,
+                depthWrite: false, worldUnits: false,
+            })
+            mat.resolution.set(window.innerWidth, window.innerHeight)
+            routesObj = new FAT.L2(geo, mat)
+        } else {
+            // фолбэк: обычные линии в 1 px (старый three / сбой импорта)
+            const geo = new THREE.BufferGeometry()
+            geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+            routesObj = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+                color: 0xf0c463, transparent: true, opacity: 0.92, depthWrite: false,
+            }))
+        }
         routesObj.name = 'routes'
         routesObj.frustumCulled = false
         chartGroup.add(routesObj)
@@ -490,6 +517,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         g.add(nodeSprite)
 
         // звезда
+        let starMeshLive = null      // живой ref: модель звезды грузится асинхронно
         const starName = entry.name + ' — звезда'
         if (entry.star?.model) {
             o.loader.load(entry.star.model, (gltf) => {
@@ -497,6 +525,8 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
                 fitModel(model, starRadius)
                 g.add(model)
                 model.traverse((m) => { if (m.isMesh) { m.userData.radius = starRadius; m.userData.planetName = starName; m.userData.sysEntry = entry; systemMeshes.push(m) } })
+                model.userData.radius = starRadius
+                starMeshLive = model
             }, undefined, (e) => console.error('модель звезды', entry.star.model, e))
         } else {
             const m = new THREE.Mesh(
@@ -506,6 +536,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             m.userData.radius = starRadius
             m.userData.planetName = starName
             m.userData.sysEntry = entry      // фаза 5: клик по звезде = клик по системе
+            starMeshLive = m
             g.add(m)
             systemMeshes.push(m)
         }
@@ -617,6 +648,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
 
         return {
             entry, group: g, halo, nodeSprite, orbiters,
+            get starMesh() { return starMeshLive },
             pos: at.clone(), rand, span,
         }
     }
@@ -654,6 +686,7 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             new THREE.MeshBasicMaterial({ color: 0xb49a5e, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false })
         )
         ring.rotation.x = -Math.PI / 2
+        ring.userData.isRing = true
         sectorGrid.add(ring)
 
         for (let a = -extent + SECTOR / 2; a < extent; a += SECTOR) {
@@ -681,7 +714,10 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
     async function load(onProgress) {
         const step = (f, t) => onProgress && onProgress(f, t)
         step(0.05, 'звёздное облако…')
-        const space = await o.loader.loadAsync('/nebulae/models/need_some_space.glb')
+        const [space] = await Promise.all([
+            o.loader.loadAsync('/nebulae/models/need_some_space.glb'),
+            loadFat(),
+        ])
         buildStarfield(space)
         step(0.45, 'карта сектора…')
         const mapa = await o.loader.loadAsync('/nebulae/models/nebula_mapa.glb')
@@ -715,10 +751,21 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         // фаза 5: на большом отдалении галактика тусклее — не «светлое пятно»,
         // а россыпь звёзд: аддитивное ядро приглушаем по дистанции камеры
         if (cloudMat) {
-            const f = THREE.MathUtils.smoothstep(camUniverse.length(), 60000, 260000)
+            const f = THREE.MathUtils.smoothstep(camUniverse.length(), 100000, 230000)
             cloudMat.uniforms.uDim.value = 1 - 0.68 * f
         }
 
+        // фаза 11: планеты и их орбиты в плане видны только при подлёте,
+        // иначе с высоты схема сыплет «яркими пикселями» у каждой системы
+        if (markPl) {
+            plFade = rigRef?.mode2d ? 1 - THREE.MathUtils.smoothstep(rigRef.dist ?? 1e9, 22000, 45000) : 0
+            markPl.material.opacity = 0.9 * plFade
+            markPl.visible = plFade > 0.02
+            if (markOrb) {
+                markOrb.material.opacity = 0.42 * plFade
+                markOrb.visible = plFade > 0.02
+            }
+        }
         // фаза 5: золотые маршруты гаснут вблизи системы и плавно возвращаются
         // при отдалении (у самой камеры линии резали бы кадр)
         if (routesObj) {
@@ -751,10 +798,14 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
             const h = Math.abs(camWorld.y)
             const fade = THREE.MathUtils.clamp((h - 1500) / 6000, 0, 1)
             sectorGrid.visible = fade > 0.02
+            // фаза 10: вдали сетка не должна затмевать звёзды — гасим линии
+            // (кольцо-границу оставляем читаемым)
+            const sFar = THREE.MathUtils.smoothstep(camUniverse.length(), 20000, 120000)
             for (const c of sectorGrid.children) {
                 if (!c.material || c.userData.label) continue
                 if (c.userData.op0 === undefined) c.userData.op0 = c.material.opacity
-                c.material.opacity = c.userData.op0 * fade
+                const dim = c.userData.isRing ? 1 - 0.25 * sFar : (rigRef?.mode2d ? 1 - 0.3 * sFar : 1 - 0.65 * sFar)
+                c.material.opacity = c.userData.op0 * fade * dim
             }
         }
     }
@@ -769,6 +820,36 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
 
     function pick(x, y) {
         if (!ready) return null
+        // фаза 10: в 2D-плане попадаем по схематичным маркерам (системы/планеты)
+        if (rigRef?.mode2d && markSys) {
+            const shift = rigRef.originShift
+            let best = null, bestD = 1e9
+            if (plFade > 0.25) markPlData.forEach((m, idx) => {
+                proj.set(m.x, 80, m.z).sub(shift).project(camera)
+                if (proj.z > 1) return
+                const sx = (proj.x * 0.5 + 0.5) * window.innerWidth
+                const sy = (-proj.y * 0.5 + 0.5) * window.innerHeight
+                const d = Math.hypot(sx - x, sy - y)
+                if (d < 10 && d < bestD) {
+                    bestD = d
+                    const orb = m.sys.orbiters?.[m.i]
+                    let mesh = null
+                    orb?.planetGroup.traverse((mm) => { if (!mesh && mm.isMesh) mesh = mm })
+                    const spec = m.sys.entry.planets?.[m.i]
+                    best = { kind: 'planet', object: orb?.planetGroup || m.sys.group, radius: mesh?.userData.radius ?? 1, name: spec?.name || 'Планета', planet: spec || null, entry: m.sys.entry, marker2d: true }
+                }
+            })
+            if (best) return best
+            for (const sys of systems) {
+                proj.copy(sys.pos).sub(shift).project(camera)
+                if (proj.z > 1) continue
+                const sx = (proj.x * 0.5 + 0.5) * window.innerWidth
+                const sy = (-proj.y * 0.5 + 0.5) * window.innerHeight
+                const d = Math.hypot(sx - x, sy - y)
+                if (d < 14 && d < bestD) { bestD = d; best = { kind: 'system', object: sys.group, radius: (sys.span || 1000) / 2.4, name: sys.entry.name, entry: sys.entry, marker2d: true } }
+            }
+            if (best) return best
+        }
         ndc.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1)
         // 1) планеты и звёзды — точный raycast (они мелкие, с высоты не попасть)
         raycaster.setFromCamera(ndc, camera)
@@ -789,19 +870,23 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         const shift = rigRef ? rigRef.originShift : _zero
         const camDist = camUniverse.length()
         let best = null, bestD = Infinity
-        const grab = 18   // фаза 5: переход к системе ТОЛЬКО по прямому клику (18 px)
+        // фаза 6: клик засчитывается ТОЛЬКО если попал в плашку-подпись системы
+        // (прямоугольник вокруг узла) или в саму точку (≤9 px). Клик в «пустое»
+        // место между подписями больше не выбирает систему
         for (const nd of nodes) {
             if (!nd.system) continue   // фаза 4: необследованные узлы не кликаются
             proj.copy(nd.pos).sub(shift).project(camera)
             if (proj.z > 1 || proj.z < -1) continue
             const sx = (proj.x * 0.5 + 0.5) * window.innerWidth
             const sy = (-proj.y * 0.5 + 0.5) * window.innerHeight
+            const dx = Math.abs(sx - x), dy = Math.abs(sy - y)
+            const onLabel = dx < 62 && dy < 17
+            const onDot = dx * dx + dy * dy < 81
+            if (!onLabel && !onDot) continue
             // в nebula_mapa.glb встречаются дубли маркеров в одной точке:
-            // именованная система всегда важнее лежащего поверх неё
-            // «необследованного» дубля
-            let d = Math.hypot(sx - x, sy - y)
-            if (nd.system) d *= 0.25
-            if (d < grab && d < bestD) { bestD = d; best = nd }
+            // именованная система всегда важнее лежащего поверх неё дубля
+            const d = Math.hypot(sx - x, sy - y)
+            if (d < bestD) { bestD = d; best = nd }
         }
         if (!best) return null
         if (best.system) {
@@ -812,6 +897,94 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
 
     function sectorOf(v) {
         return 'сектор ' + Math.floor(v.x / SECTOR) + '·' + Math.floor(v.z / SECTOR)
+    }
+
+
+    /* ═════════ фаза 10: 2D-ПЛАН ═════════
+       Очертания галактики = изолиния плотности звёздного облака
+       (marching squares по гистограмме, считается один раз лениво).
+       Маркеры = квадраты-точки: системы (золото) и планеты (цвет класса)
+       вокруг них схематичным веером. Всё — Points/LineSegments, копейки для GPU. */
+    let markSys = null, markPl = null, markPlData = []
+    let markOrb = null, plFade = 0
+    function buildMarkers() {
+        if (markSys) return
+        const sp = [], pp = [], pc = [], opv = [], ocl = []
+        markPlData = []
+        const col = new THREE.Color()
+        for (const sys of systems) {
+            sp.push(sys.pos.x, 80, sys.pos.z)
+            ;(sys.entry.planets || []).forEach((pl, i) => {
+                const a = i * 2.399 + (Number.isFinite(sys.rand) ? sys.rand : 0) * 6.28
+                const r = 2600 + i * 1900
+                const x = sys.pos.x + Math.cos(a) * r, z = sys.pos.z + Math.sin(a) * r
+                pp.push(x, 80, z)
+                col.set(planetChipColor(pl))
+                pc.push(col.r, col.g, col.b)
+                // фаза 11: волосяная орбита вокруг системы — точка планеты
+                // сидит на ней, а не «пикселем» рядом с квадратом системы
+                const SEG = 36
+                for (let s2 = 0; s2 < SEG; s2++) {
+                    const a1 = (s2 / SEG) * Math.PI * 2, a2 = ((s2 + 1) / SEG) * Math.PI * 2
+                    opv.push(sys.pos.x + Math.cos(a1) * r, 80, sys.pos.z + Math.sin(a1) * r)
+                    opv.push(sys.pos.x + Math.cos(a2) * r, 80, sys.pos.z + Math.sin(a2) * r)
+                    ocl.push(col.r * 0.55, col.g * 0.55, col.b * 0.55, col.r * 0.55, col.g * 0.55, col.b * 0.55)
+                }
+                markPlData.push({ x, z, sys, i })
+            })
+        }
+        const g1 = new THREE.BufferGeometry()
+        g1.setAttribute('position', new THREE.BufferAttribute(new Float32Array(sp), 3))
+        markSys = new THREE.Points(g1, new THREE.PointsMaterial({
+            color: 0xe0b84f, size: 11, sizeAttenuation: false, transparent: true, opacity: 0.95, depthWrite: false,
+        }))
+        markSys.frustumCulled = false
+        const g2 = new THREE.BufferGeometry()
+        g2.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pp), 3))
+        g2.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pc), 3))
+        markPl = new THREE.Points(g2, new THREE.PointsMaterial({
+            size: 5, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0, depthWrite: false,
+        }))
+        markPl.frustumCulled = false
+        const g3 = new THREE.BufferGeometry()
+        g3.setAttribute('position', new THREE.BufferAttribute(new Float32Array(opv), 3))
+        g3.setAttribute('color', new THREE.BufferAttribute(new Float32Array(ocl), 3))
+        markOrb = new THREE.LineSegments(g3, new THREE.LineBasicMaterial({
+            vertexColors: true, transparent: true, opacity: 0, depthWrite: false,
+        }))
+        markOrb.name = 'markers2d-orb'
+        markOrb.frustumCulled = false
+        markOrb.visible = false
+        markSys.name = 'markers2d-sys'; markPl.name = 'markers2d-pl'
+        markSys.visible = markPl.visible = false
+        markSys.frustumCulled = markPl.frustumCulled = false
+        group.add(markSys, markPl, markOrb)
+    }
+    function set2D(on) {
+        if (on) buildMarkers()
+        if (markSys) markSys.visible = !!on
+        if (markPl) markPl.visible = !!on && plFade > 0.02
+        if (markOrb) markOrb.visible = !!on && plFade > 0.02
+    }
+
+    /** Фаза 8: уникальные имена секторов, занятых узлами (для поиска). */
+    function sectors() {
+        const set = new Set()
+        for (const nd of nodes) if (nd.system) set.add(sectorOf(nd.pos))
+        return [...set].sort()
+    }
+
+    /** Фаза 8: регион кампании, в который входит сектор (или null). */
+    function regionOf(sectorName) {
+        const list = CAMPAIGN?.regions || []
+        return list.find((r) => (r.sectors || []).includes(sectorName)) || null
+    }
+
+    /** Фаза 8: центр сектора в координатах вселенной (для перелёта из поиска). */
+    function sectorCenter(sectorName) {
+        const m = /сектор (-?\d+)·(-?\d+)/.exec(sectorName || '')
+        if (!m) return null
+        return new THREE.Vector3((+m[1] + 0.5) * SECTOR, 0, (+m[2] + 0.5) * SECTOR)
     }
 
     // ─── КАРТОЧКИ ───────────────────────────────────────────────────────────
@@ -855,8 +1028,8 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         }
         if (hit.kind === 'system') {
             const e = hit.entry
-            const planets = (e.planets || []).map((p) =>
-                '<li><span class="chip" style="background:' + planetChipColor(p) + '"></span>' +
+            const planets = (e.planets || []).map((p, i) =>
+                '<li data-p="' + i + '" title="Подлететь к объекту"><span class="chip" style="background:' + planetChipColor(p) + '"></span>' +
                 '<b>' + esc(p.tag ? p.tag + '. ' : '') + esc(p.name || 'планета') + '</b>' +
                 '<em>' + esc(p.kind || '') + '</em></li>'
             ).join('')
@@ -910,10 +1083,14 @@ export function createChartMap(renderer, camera, worldRoot, opts = {}) {
         attachRig(r) { rigRef = r },
         setPixelRatio(r) {
             if (cloudMat) cloudMat.uniforms.uPixRatio.value = r
-            if (routesObj) routesObj.material.resolution.set(window.innerWidth, window.innerHeight)
+            if (routesObj && routesObj.material.resolution) routesObj.material.resolution.set(window.innerWidth, window.innerHeight)
         },
         get nodes() { return nodes },
         get systems() { return systems },
+        sectors, regionOf, sectorCenter, set2D,
+        get sectorSize() { return SECTOR },
+        planetChip: planetChipColor,
+        starChip: (e) => '#' + new THREE.Color(e?.star?.color ?? 0xffe08a).getHexString(),
         bounds: BOUNDS,
         sector: SECTOR,
         sectorOf,
